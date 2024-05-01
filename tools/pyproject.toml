@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "osh-tools"
+version = "0.1.0"
+description = ""
+authors = ["Zheng, Yang <kevin.cn.zhengyang@gmail.com>"]
+readme = "README.md"
+packages = [{include = "osh_tools"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+graphviz = "^0.20.3"
+bless = "^0.2.6"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

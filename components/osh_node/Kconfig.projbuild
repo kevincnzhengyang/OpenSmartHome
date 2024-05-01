@@ -1,0 +1,79 @@
+menu "Open Smart Home Node config"
+
+menuconfig NODE_ENABLE_RESET
+    bool "Enable reset button"
+    default y
+    if NODE_ENABLE_RESET
+        config NODE_RESET_GPIO_NUM
+            int "GPIO number to reset node"
+            range 0 39
+            default 19 if IDF_TARGET_ESP32C3
+            default 22 if IDF_TARGET_ESP32
+    endif
+
+choice NODE_NETWORK_TRANSPORT
+    bool "Node Network Transport"
+    default NODE_NETWORK_TRANSPORT_WIFI if IDF_TARGET_ESP32S2
+    default NODE_NETWORK_TRANSPORT_BLE
+    help
+        Node network can use WiFi or BLE transport.
+
+    config NODE_NETWORK_TRANSPORT_WIFI
+        bool "WiFi"
+        select LWIP_IPV4
+    config NODE_NETWORK_TRANSPORT_BLE
+        bool "BLE"
+        select BT_ENABLED
+endchoice
+
+menuconfig NODE_USING_BLUEDROID
+    bool "Using BlueDroid"
+    depends on (NODE_NETWORK_TRANSPORT_BLE && (IDF_TARGET_ESP32C3 || IDF_TARGET_ESP32S3))
+    select BT_BLUEDROID_ENABLED
+    select BT_BLE_42_FEATURES_SUPPORTED
+    default n
+    help
+        This enables BLE 4.2 features for Bluedroid.
+
+config NODE_NETWORK_TRANSPORT
+    int
+    default 1 if NODE_NETWORK_TRANSPORT_WIFI
+    default 2 if NODE_NETWORK_TRANSPORT_BLE
+
+menu "UDP Server"
+    depends on NODE_NETWORK_TRANSPORT_WIFI
+    config NODE_UDP_PORT
+        int "UDP port when using WiFi"
+        default 39199
+    config NODE_UDP_STACK_SIZE
+        int "UDP task stack size"
+        default 2048
+    config NODE_UDP_BUFF_SIZE
+        int "UDP recv buffer size"
+        default 512
+endmenu
+
+config NODE_WIFI_PROV_RETRIES
+    int "retry number for WiFi Provisioning"
+    default 10
+    depends on NODE_NETWORK_TRANSPORT_WIFI
+
+menu "Status RGB LED"
+    config STATUS_R_LED_GPIO_NUM
+        int "GPIO number for status RED LED"
+        range 0 39
+        default 3 if IDF_TARGET_ESP32C3
+        default 32 if IDF_TARGET_ESP32
+    config STATUS_G_LED_GPIO_NUM
+        int "GPIO number for status GREEN LED"
+        range 0 39
+        default 5 if IDF_TARGET_ESP32C3
+        default 33 if IDF_TARGET_ESP32
+    config STATUS_B_LED_GPIO_NUM
+        int "GPIO number for status BLUE LED"
+        range 0 39
+        default 6 if IDF_TARGET_ESP32C3
+        default 34 if IDF_TARGET_ESP32
+endmenu
+
+endmenu
