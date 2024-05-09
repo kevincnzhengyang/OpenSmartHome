@@ -19,13 +19,13 @@ extern "C" {
 
 
 /* init RGB LED for status indicator */
-esp_err_t osh_node_init_status(void);
+esp_err_t osh_node_status_init(void);
 
 /* flush status */
-esp_err_t osh_node_flush_status(void);
+esp_err_t osh_node_status_refresh(void);
 
 /* init GPIO button for reset network config */
-esp_err_t osh_node_init_reset_button(void);
+esp_err_t osh_node_reset_btn_init(void);
 
 #ifdef __cplusplus
 }

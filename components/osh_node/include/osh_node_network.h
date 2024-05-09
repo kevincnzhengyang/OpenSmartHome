@@ -14,16 +14,26 @@
 extern "C" {
 #endif
 
-#include "osh_node_network.inc"
 #include "osh_node_proto.h"
+
+#define OSH_ERR_NET_INNER               (OSH_ERR_NET_BASE +     1)
+#define OSH_ERR_NET_LINK                (OSH_ERR_NET_BASE +     2)
+#define OSH_ERR_NET_RECV                (OSH_ERR_NET_BASE +     3)
+#define OSH_ERR_NET_SEND                (OSH_ERR_NET_BASE +     4)
+
 
 // transport
 #ifdef CONFIG_NODE_NETWORK_TRANSPORT_WIFI
 #include "osh_node_wifi.h"
 
 /* config node network with WiFi */
-#define osh_node_network_create() osh_node_network_wifi_create()
-#define osh_node_network_get() osh_node_network_wifi_get()
+#define osh_node_network_init(conf_arg) osh_node_wifi_init(conf_arg)
+
+#define osh_node_network_start(run_arg) osh_node_wifi_start(run_arg)
+
+#define osh_node_network_reset() osh_node_wifi_reset()
+
+#define osh_node_network_get_dev_name() osh_node_wifi_get_dev_name()
 
 #elif CONFIG_NODE_NETWORK_TRANSPORT_BLE
 #include "osh_node_ble.h"

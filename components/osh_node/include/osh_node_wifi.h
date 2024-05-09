@@ -20,7 +20,6 @@ extern "C" {
 #include "osh_node_events.h"
 #include "osh_node_errors.h"
 #include "osh_node_status.h"
-#include "osh_node_network.inc"
 #include "osh_node_proto.h"
 
 /** -------------------------------
@@ -28,9 +27,17 @@ extern "C" {
  *  -------------------------------
 */
 
-osh_node_network *osh_node_network_wifi_create(void);
+/* init WiFi */
+esp_err_t osh_node_wifi_init(void *conf_arg);
 
-osh_node_network *osh_node_network_wifi_get(void);
+/* start WiFi */
+esp_err_t osh_node_wifi_start(void *run_arg);
+
+/* reset WiFi */
+esp_err_t osh_node_wifi_reset(void);
+
+/* get node dev name */
+const char *osh_node_wifi_get_dev_name(void);
 
 #ifdef __cplusplus
 }

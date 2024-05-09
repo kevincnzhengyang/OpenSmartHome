@@ -26,7 +26,7 @@ extern "C" {
 #include "esp_log.h"
 
 
-/* macro for traverse the list */
+/* macro for traverse the list of FreeRTOS */
 #define listFOR_EACH_ENTRY(plist, type, owner) \
     for(ListItem_t const *pos = listGET_HEAD_ENTRY(plist);    \
         owner = (type *)listGET_LIST_ITEM_OWNER(pos), pos != listGET_END_MARKER(plist); \

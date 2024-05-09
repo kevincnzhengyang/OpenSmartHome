@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-04-30 22:36:41
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-08 22:11:40
+ * @LastEditTime: 2024-05-09 22:41:18
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_wifi.c
  * @Description : WiFi network
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -12,7 +12,6 @@
 #include <wifi_provisioning/scheme_softap.h>
 #include "esp_netif.h"
 #include "qrcode.h"
-#include "mdns.h"
 
 #include "lwip/err.h"
 #include "lwip/sys.h"
@@ -25,18 +24,21 @@
 #include "osh_node_wifi.h"
 #include "osh_node_events.h"
 #include "osh_node_fsm.h"
+#include "osh_node_proto.h"
 
 const char *WIFI_TAG = "WiFi";
 
-typedef struct {
-    struct sockaddr_storage source_addr;
-    socklen_t                   socklen;
-    int                            sock;
-} wifi_conn_stru;
+#define NODE_NAME_LEN                       12
+
+/* network */
+typedef struct
+{
+    char      node_name[NODE_NAME_LEN];
+    void                     *conf_arg;
+} osh_node_network;
+
 
 static osh_node_network g_node_wifi;
-static wifi_conn_stru  g_wifi_conn;
-static osh_node_network g_network;
 
 /** --------------------------
  *        WiFi Provision
@@ -149,7 +151,7 @@ static void event_handler(void* arg, esp_event_base_t event_base,
                 break;
             case WIFI_EVENT_STA_DISCONNECTED:
                 ESP_LOGI(WIFI_TAG, "Disconnected. Connecting to the AP again...");
-                osh_invoke_event(OSH_NODE_EVENT_DISCONNECT);
+                osh_node_fsm_invoke_event(OSH_NODE_EVENT_DISCONNECT);
                 esp_wifi_connect();
                 break;
             case WIFI_EVENT_AP_STACONNECTED:
@@ -165,7 +167,7 @@ static void event_handler(void* arg, esp_event_base_t event_base,
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
         ESP_LOGI(WIFI_TAG, "Connected with IP Address:" IPSTR, IP2STR(&event->ip_info.ip));
         // change state and invoke OSH_NODE_EVENT_CONNECT
-        osh_invoke_event(OSH_NODE_EVENT_CONNECT);
+        osh_node_fsm_invoke_event(OSH_NODE_EVENT_CONNECT);
 
     } else if (event_base == PROTOCOMM_SECURITY_SESSION_EVENT) {
         switch (event_id) {
@@ -210,234 +212,6 @@ static void wifi_prov_print_qr(const char *name, const char *username,
     esp_qrcode_config_t cfg = ESP_QRCODE_CONFIG_DEFAULT();
     esp_qrcode_generate(&cfg, payload);
     ESP_LOGI(WIFI_TAG, "If QR code is not visible, copy paste the below URL in a browser.\n%s?data=%s", QRCODE_BASE_URL, payload);
-}
-
-/** --------------------------
- *          mDNS
- *  --------------------------
-*/
-/* start mDNS */
-static esp_err_t start_mdns(void) {
-    // init mDNS
-    esp_err_t err = mdns_init();
-    if (err) {
-        return err;
-    }
-
-    // set hostname
-    mdns_hostname_set(g_node_wifi.node_name);
-    // set default instance
-    mdns_instance_name_set("OpenSmartHome");
-    // add service
-    mdns_service_add(NULL, "_osh_node", "_udp",
-            CONFIG_NODE_UDP_PORT, NULL, 0);
-
-    return ESP_OK;
-}
-
-/* stop mDNS */
-static esp_err_t stop_mdns(void) {
-    mdns_free();
-    return ESP_OK;
-}
-
-/** --------------------------
- *           UDP Server
- *  --------------------------
-*/
-static void udp_server_svc(void *arg)
-{
-    struct sockaddr_in6 dest_addr;
-
-    struct sockaddr_in *dest_addr_ip4 = (struct sockaddr_in *)&dest_addr;
-    dest_addr_ip4->sin_addr.s_addr = htonl(INADDR_ANY);
-    dest_addr_ip4->sin_family = AF_INET;
-    dest_addr_ip4->sin_port = htons(CONFIG_NODE_UDP_PORT);
-
-    if (NULL != g_node_wifi.proto && NULL != g_node_wifi.proto->init) {
-        // init proto
-        if (ESP_OK != g_node_wifi.proto->init(arg)) {
-            ESP_LOGE(WIFI_TAG, "UDP Server failed to init proto");
-            vTaskDelete(NULL);
-            return;
-        }
-    }
-
-    while (1) {
-        // reset proto when server reset
-        if (NULL != g_node_wifi.proto && NULL != g_node_wifi.proto->reset) g_node_wifi.proto->reset();
-        int sock = -1;
-        sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
-
-        if (0 > sock) {
-            ESP_LOGE(WIFI_TAG, "Unable to create socket: errno %d", errno);
-            break;
-        }
-
-        ESP_LOGI(WIFI_TAG, "Socket created");
-        // Set timeout
-        struct timeval timeout;
-        timeout.tv_sec = 10;
-        timeout.tv_usec = 0;
-        setsockopt (sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout);
-
-
-        int err = bind(sock, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
-        if (err < 0) {
-            ESP_LOGE(WIFI_TAG, "Socket unable to bind: errno %d", errno);
-        }
-        ESP_LOGI(WIFI_TAG, "Socket bound, port %d", CONFIG_NODE_UDP_PORT);
-
-
-
-        while (1) {
-            ESP_LOGI(WIFI_TAG, "Waiting for data");
-            int len = recvfrom(sock, g_node_wifi.rx_buff, g_node_wifi.rx_size, 0,
-                                    (struct sockaddr *)&g_wifi_conn.source_addr,
-                                    &g_wifi_conn.socklen);
-
-            if (len < 0) {
-                if (EAGAIN == errno) {
-                    // TODO count and power save
-                    // count
-                    ESP_LOGD(WIFI_TAG, "socket timeout");
-                    continue;
-                } else {
-                    ESP_LOGE(WIFI_TAG, "recvfrom failed: errno %d", errno);
-                    break;
-                }
-            } else {
-                g_wifi_conn.sock = sock;    // save sock for response
-                g_node_wifi.rx_len = len;
-                ESP_LOGI(WIFI_TAG, "Received: len %d from " IPSTR, len,
-                            IP2STR((esp_ip4_addr_t *)g_wifi_conn.source_addr.s2_data1));
-
-                if (NULL != g_node_wifi.proto && NULL != g_node_wifi.proto->decode) {
-                    if (ESP_OK != g_node_wifi.proto->decode(
-                                    g_node_wifi.rx_buff,
-                                    g_node_wifi.rx_len,
-                                    g_node_wifi.arg)) {
-                        ESP_LOGE(WIFI_TAG, "failed to process, reset UDP server");
-                        break;
-                    }
-                }
-            }
-        }
-
-        if (sock != -1) {
-            ESP_LOGE(WIFI_TAG, "Shutting down socket and restarting...");
-            g_wifi_conn.sock = -1;
-            g_node_wifi.rx_len = 0;
-            shutdown(sock, 0);
-            close(sock);
-        }
-    }
-    vTaskDelete(NULL);
-}
-
-/* start UDP Server */
-static esp_err_t start_udp_server(void *arg) {
-    xTaskCreate(udp_server_svc, "udp_server",
-        CONFIG_NODE_UDP_STACK_SIZE, arg, 5, &g_node_wifi.server_task);
-    return ESP_OK;
-}
-
-/* stop UDP Server */
-static esp_err_t stop_udp_server(void *arg) {
-    // fini proto
-    if (NULL != g_node_wifi.proto && NULL != g_node_wifi.proto->fini) g_node_wifi.proto->fini();
-
-    vTaskDelete(g_node_wifi.server_task);
-    return ESP_OK;
-}
-
-/* send msg */
-static esp_err_t send_udp_response(void *arg) {
-    if (NULL == g_node_wifi.proto || NULL == g_node_wifi.proto->encode) return ESP_OK;
-
-    // encode resposne
-    esp_err_t ret = g_node_wifi.proto->encode(g_node_wifi.proto->msg,
-                            g_node_wifi.tx_buff, g_node_wifi.tx_size,
-                            &g_node_wifi.tx_len);
-    if (ESP_OK != ret) return ret;
-
-    // udp send to client
-    if (-1 == g_wifi_conn.sock) {
-        ESP_LOGE(WIFI_TAG, "lost connet to client");
-        osh_invoke_event(OSH_NODE_EVENT_DISCONNECT);
-        return OSH_ERR_NET_LINK;
-    }
-    int err = sendto(g_wifi_conn.sock, g_node_wifi.tx_buff, g_node_wifi.tx_len, 0,
-        (struct sockaddr *)&g_wifi_conn.source_addr, sizeof(g_wifi_conn.source_addr));
-    if (0 > err) {
-        ESP_LOGE(WIFI_TAG, "failed to send response. errno: %d", err);
-        return OSH_ERR_NET_SEND;
-    }
-    return ESP_OK;
-}
-
-/** -------------------------------
- *            functions
- *  -------------------------------
-*/
-
-/* init node WiFi */
-static esp_err_t osh_node_init_wifi(size_t rx_buff_size, size_t tx_buff_size,
-                osh_node_proto *proto, void *arg) {
-    memset(&g_wifi_conn, 0, sizeof(g_wifi_conn));
-    /* init buffer */
-    g_node_wifi.rx_buff = malloc(rx_buff_size);
-    if (NULL == g_node_wifi.rx_buff) {
-        ESP_LOGE(WIFI_TAG, "failed to malloc mem for wifi rx_buffer");
-        return ESP_ERR_NO_MEM;
-    }
-    memset(g_node_wifi.rx_buff, 0, rx_buff_size);
-    g_node_wifi.rx_size = rx_buff_size;
-    g_node_wifi.rx_len = 0;
-
-    g_node_wifi.tx_buff = malloc(tx_buff_size);
-    if (NULL == g_node_wifi.tx_buff) {
-        ESP_LOGE(WIFI_TAG, "failed to malloc mem for wifi tx_buffer");
-        return ESP_ERR_NO_MEM;
-    }
-    memset(g_node_wifi.tx_buff, 0, tx_buff_size);
-    g_node_wifi.tx_size = tx_buff_size;
-    g_node_wifi.tx_len = 0;
-
-    /* Initialize TCP/IP */
-    ESP_ERROR_CHECK(esp_netif_init());
-
-    /* Initialize Wi-Fi including netif with default config */
-    esp_netif_create_default_wifi_sta();
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
-    /* set Node name */
-    uint8_t eth_mac[6];
-    esp_wifi_get_mac(WIFI_IF_STA, eth_mac);
-    snprintf(g_node_wifi.node_name, NODE_NAME_LEN, "OSH_%02X%02X%02X",
-             eth_mac[3], eth_mac[4], eth_mac[5]);
-
-    g_wifi_conn.sock = -1;
-    g_node_wifi.arg = arg;
-    g_node_wifi.proto = proto;
-    return ESP_OK;
-}
-
-/* reset node wifi */
-static esp_err_t osh_node_reset_wifi(void) {
-    memset(g_node_wifi.rx_buff, 0, g_node_wifi.rx_size);
-    g_node_wifi.rx_len = 0;
-    memset(g_node_wifi.tx_buff, 0, g_node_wifi.tx_size);
-    g_node_wifi.tx_len = 0;
-
-    esp_wifi_restore();
-    return ESP_OK;
-}
-
-/* get node name */
-static const char* osh_node_get_name_wifi(void) {
-    return (const char*)g_node_wifi.node_name;
 }
 
 /** -------------------------------
@@ -571,16 +345,10 @@ static esp_err_t osh_node_wifi_init_poweron(void *config, void *arg) {
  * next state: OSH_FSM_STATE_IDLE, wait for request
 */
 static esp_err_t osh_node_wifi_init_connect(void *config, void *arg) {
-    esp_err_t err = ESP_FAIL;
-
-    // start UDP server to recv message
-    if (ESP_OK != (err = start_udp_server(arg))) return err;
-
-    // start mDNS
-     if (ESP_OK != (err = start_mdns())) return err;
+    // TODO start coap proto
 
     // change state to OSH_FSM_STATE_IDLE
-    osh_fsm_set_state(OSH_FSM_STATE_IDLE);
+    osh_node_fsm_set_state(OSH_FSM_STATE_IDLE);
 
     return ESP_OK;
 }
@@ -591,139 +359,55 @@ static esp_err_t osh_node_wifi_init_connect(void *config, void *arg) {
  * next state: OSH_FSM_STATE_INIT, wait for connect
 */
 static esp_err_t osh_node_wifi_on_disconnect(void *config, void *arg) {
-    // stop mDNS
-    stop_mdns();
-
-    // stop UDP server
-    stop_udp_server(NULL);
+    // TODO stop coap proto
 
     // change state to OSH_FSM_STATE_INIT
-    osh_fsm_set_state(OSH_FSM_STATE_INIT);
+    osh_node_fsm_set_state(OSH_FSM_STATE_INIT);
     return ESP_OK;
 }
 
-/**
- * state: OSH_FSM_STATE_IDLE
- * event: OSH_NODE_EVENT_T_SAVE
- * next state: OSH_FSM_STATE_SAVING, wait for wakeup
+/** -------------------------------
+ *            functions
+ *  -------------------------------
 */
-static esp_err_t osh_node_wifi_idle_t_save(void *config, void *arg) {
-    //  TODO
-    // power save
 
-    // change state to OSH_FSM_STATE_SAVING
-    osh_fsm_set_state(OSH_FSM_STATE_SAVING);
+/* init WiFi */
+esp_err_t osh_node_wifi_init(void *conf_arg) {
+    memset(&g_node_wifi, 0, sizeof(osh_node_network));
+
+    /* Initialize TCP/IP */
+    ESP_ERROR_CHECK(esp_netif_init());
+
+    /* Initialize Wi-Fi including netif with default config */
+    esp_netif_create_default_wifi_sta();
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
+    /* set Node name */
+    uint8_t eth_mac[6];
+    esp_wifi_get_mac(WIFI_IF_STA, eth_mac);
+    snprintf(g_node_wifi.node_name, NODE_NAME_LEN, "OSH_%02X%02X%02X",
+             eth_mac[3], eth_mac[4], eth_mac[5]);
+
+    g_node_wifi.conf_arg = conf_arg;
+
+    /* register event callback to FSM */
     return ESP_OK;
 }
 
-/**
- * state: OSH_FSM_STATE_IDLE, OSH_FSM_STATE_ONGOING
- * event: OSH_NODE_EVENT_REQUEST
- * next state: OSH_FSM_STATE_ONGOING, wait for request or invoke
-*/
-static esp_err_t osh_node_wifi_on_request(void *config, void *arg) {
-    if (NULL == g_node_wifi.proto) return ESP_OK;
-
-    // call msg handle callback
-
-    // change state to OSH_FSM_STATE_ONGOING
-    if (OSH_FSM_STATE_ONGOING != osh_fsm_get_state()) osh_fsm_set_state(OSH_FSM_STATE_ONGOING);
+/* start WiFi */
+esp_err_t osh_node_wifi_start(void *run_arg) {
+    osh_node_fsm_invoke_event(OSH_NODE_EVENT_POWERON);
     return ESP_OK;
 }
 
-/**
- * state: OSH_FSM_STATE_IDLE, OSH_FSM_STATE_ONGOING
- * event: OSH_NODE_EVENT_UPDATE
- * next state: OSH_FSM_STATE_UPGRADING, wait for update
-*/
-static esp_err_t osh_node_wifi_on_update(void *config, void *arg) {
-
-    // change state to OSH_FSM_STATE_UPGRADING
-    osh_fsm_set_state(OSH_FSM_STATE_UPGRADING);
+/* reset WiFi */
+esp_err_t osh_node_wifi_reset(void) {
+    esp_wifi_restore();
     return ESP_OK;
 }
 
-/**
- * state: OSH_FSM_STATE_ONGOING
- * event: OSH_NODE_EVENT_T_IDLE
- * next state: OSH_FSM_STATE_IDLE, wait for request or invoke
-*/
-static esp_err_t osh_node_wifi_ongoing_t_idle(void *config, void *arg) {
-
-    // change state to OSH_FSM_STATE_IDLE
-    osh_fsm_set_state(OSH_FSM_STATE_IDLE);
-    return ESP_OK;
-}
-
-/**
- * state: OSH_FSM_STATE_UPGRADING
- * event: OSH_NODE_EVENT_DOWNLOAD
- * next state: OSH_FSM_STATE_UPGRADING, wait for ota completed or failed
-*/
-static esp_err_t osh_node_wifi_upgrading_download(void *config, void *arg) {
-    return ESP_OK;
-}
-
-/**
- * state: OSH_FSM_STATE_UPGRADING
- * event: OSH_NODE_EVENT_OTA_COMPLETE
- * next state: OSH_FSM_STATE_INIT, restart
-*/
-static esp_err_t osh_node_wifi_upgrading_complete(void *config, void *arg) {
-
-    // change state to OSH_FSM_STATE_ONGOING
-    osh_fsm_set_state(OSH_FSM_STATE_INIT);
-    return ESP_OK;
-}
-
-/**
- * state: OSH_FSM_STATE_UPGRADING
- * event: OSH_NODE_EVENT_OTA_ROLLBACK
- * next state: OSH_FSM_STATE_INIT, restart
-*/
-static esp_err_t osh_node_wifi_upgrading_rollback(void *config, void *arg) {
-
-    // change state to OSH_FSM_STATE_ONGOING
-    osh_fsm_set_state(OSH_FSM_STATE_INIT);
-    return ESP_OK;
-}
-
-/**
- * state: OSH_FSM_STATE_SAVING
- * event: OSH_NODE_EVENT_T_WAKEUP
- * next state: OSH_FSM_STATE_IDLE, wait for request or invoke
-*/
-static esp_err_t osh_node_wifi_saving_t_wakeup(void *config, void *arg) {
-
-    // change state to OSH_FSM_STATE_IDLE
-    osh_fsm_set_state(OSH_FSM_STATE_IDLE);
-    return ESP_OK;
-}
-
-osh_node_network *osh_node_network_wifi_create(void) {
-    osh_node_network *net = &g_network;
-    memset(net, 0, sizeof(osh_node_network));
-    net->init = osh_node_init_wifi;
-    net->reset = osh_node_reset_wifi;
-    net->get_name = osh_node_get_name_wifi;
-    net->reponse = send_udp_response;
-    net->init_poweron = osh_node_wifi_init_poweron;
-    net->init_connect = osh_node_wifi_init_connect;
-    net->idle_disconnect = osh_node_wifi_on_disconnect;
-    net->idle_t_save = osh_node_wifi_idle_t_save;
-    net->idle_request = osh_node_wifi_on_request;
-    net->idle_update = osh_node_wifi_on_update;
-    net->ongoing_t_idle = osh_node_wifi_ongoing_t_idle;
-    net->ongoing_request = osh_node_wifi_on_request;
-    net->ongoing_disconnect = osh_node_wifi_on_disconnect;
-    net->ongoing_update = osh_node_wifi_on_update;
-    net->upgrading_download = osh_node_wifi_upgrading_download;
-    net->upgrading_complete = osh_node_wifi_upgrading_complete;
-    net->upgrading_rollback = osh_node_wifi_upgrading_rollback;
-    net->saving_t_wakeup = osh_node_wifi_saving_t_wakeup;
-    return net;
-}
-
-osh_node_network *osh_node_network_wifi_get(void) {
-    return &g_network;
+/* get node dev name */
+const char *osh_node_wifi_get_dev_name(void) {
+    return (const char *)g_node_wifi.node_name;
 }

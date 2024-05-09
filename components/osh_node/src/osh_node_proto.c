@@ -2,167 +2,375 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-05-08 19:20:33
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-08 23:53:33
+ * @LastEditTime: 2024-05-09 23:11:46
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_proto.c
  * @Description :
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
  */
 
-#include "osh_node_proto.h"
+#include <string.h>
+#include <sys/socket.h>
 
-#include <freertos/list.h>
+#include "esp_wifi.h"
+
+#include "osh_node_proto.h"
+#include "osh_node_proto.inc"
 
 static const char *PROTO_TAG = "COAP";
 
-#define OSH_COAP_VERSION    1
+static osh_node_proto_t g_proto;
 
-/* decode from octects */
-#define GET_VERSION(data) ((0xC0 & (data)[0]) >> 6)
-#define GET_TYPE(data) ((0x30 & (data)[0]) >> 4)
-#define GET_TOKEN_LEN(data) (0x0F & (data)[0])
-#define GET_CLASS(data) (((data)[1] >> 5) & 0x07)
-#define GET_CODE(data)  ((data)[1] & 0x1F)
-#define GET_MSG_ID(data) (((data)[2] << 8) | (data)[3])
-#define GET_CONTENT_TYPE(data) ((data)[4])
-#define GET_CONTENT_LEN(data) (((data)[5] << 16) | ((data)[6] << 8) | (data)[7])
-#define GET_TOKEN_POS(data) ((uint8_t *)&(data)[8])
-#define GET_CONTENT_POS(data) ((uint8_t *)&(data[8+GET_TOKEN_LEN(data)]))
+#ifdef CONFIG_NODE_COAP_MBEDTLS_PKI
+/* CA cert, taken from coap_ca.pem
+   Server cert, taken from coap_server.crt
+   Server key, taken from coap_server.key
 
-/* encode to octects */
-#define SET_VERSION(data, ver) ((data)[0] |= (((ver) & 0x03) << 6))
-#define SET_TYPE(data, type) ((data)[0] |= (((type) & 0x03) << 4))
-#define SET_TOKEN_LEN(data, len) ((data)[0] |= ((len) & 0x0F))
-#define SET_CLASS(data, cls) ((data)[1] |= (((cls) & 0x07) << 5))
-#define SET_CODE(data, code) ((data)[1] |= ((code) & 0x1F))
-#define SET_MSG_ID(data, id) ((data)[2] = (((id) & 0xFF00) >> 8), (data)[3] = ((id) & 0xFF))
-#define SET_CONTENT_TYPE(data, type) ((data)[4] = ((type) & 0xFF))
-#define SET_CONTENT_LEN(data, len) ((data)[5] = (((len) & 0xFF0000) >> 16), (data)[6] = (((len) & 0xFF00) >> 8), (data)[7] = ((len) & 0xFF))
+   The PEM, CRT and KEY file are examples taken from
+   https://github.com/eclipse/californium/tree/master/demo-certs/src/main/resources
+   as the Certificate test (by default) for the coap_client is against the
+   californium server.
 
-/* request handler item */
-typedef struct {
-    uint8_t               request_code;
-    handle_request             handler;
-    ListItem_t            request_item;
-} osh_request_handler_stru;
+   To embed it in the app binary, the PEM, CRT and KEY file is named
+   in the CMakeLists.txt EMBED_TXTFILES definition.
+ */
+extern uint8_t ca_pem_start[] asm("_binary_coap_ca_pem_start");
+extern uint8_t ca_pem_end[]   asm("_binary_coap_ca_pem_end");
+extern uint8_t server_crt_start[] asm("_binary_coap_server_crt_start");
+extern uint8_t server_crt_end[]   asm("_binary_coap_server_crt_end");
+extern uint8_t server_key_start[] asm("_binary_coap_server_key_start");
+extern uint8_t server_key_end[]   asm("_binary_coap_server_key_end");
+#endif /* CONFIG_NODE_COAP_MBEDTLS_PKI */
 
-typedef struct {
-    int32_t                   finished;     // flag for session finished
-    uint32_t                  sequence;
-    List_t                    handlers;
-    void                          *arg;
-} osh_coap_proto;
+#define INITIAL_DATA "Hello World!"
 
-static osh_coap_proto g_coap_proto;
+/* default request handler */
+static void dft_request_handler(coap_resource_t *resource,
+                                coap_session_t *session,
+                                const coap_pdu_t *request,
+                                const coap_string_t *query,
+                                coap_pdu_t *response) {
+    // TODO dispatch request to route callback
+    coap_pdu_set_code(response, COAP_RESPONSE_CODE_CONTENT);
+    coap_add_data_large_response(resource, session, request, response,
+                                 query, COAP_MEDIATYPE_TEXT_PLAIN, 60, 0,
+                                 g_proto.buff_len,
+                                 g_proto.buff,
+                                 NULL, NULL);
+}
 
-static esp_err_t osh_coap_buff_malloc(void **pbuff, size_t size) {
-    *pbuff = malloc(size);
-    if (NULL == *pbuff) {
-        ESP_LOGE(PROTO_TAG, "failed to malloc");
-        return ESP_ERR_NO_MEM;
+// -------------------------------------
+/*
+ * The resource handler
+ */
+static void
+hnd_espressif_get(coap_resource_t *resource,
+                  coap_session_t *session,
+                  const coap_pdu_t *request,
+                  const coap_string_t *query,
+                  coap_pdu_t *response)
+{
+    coap_pdu_set_code(response, COAP_RESPONSE_CODE_CONTENT);
+    coap_add_data_large_response(resource, session, request, response,
+                                 query, COAP_MEDIATYPE_TEXT_PLAIN, 60, 0,
+                                 g_proto.buff_len,
+                                 g_proto.buff,
+                                 NULL, NULL);
+}
+
+static void
+hnd_espressif_put(coap_resource_t *resource,
+                  coap_session_t *session,
+                  const coap_pdu_t *request,
+                  const coap_string_t *query,
+                  coap_pdu_t *response)
+{
+    size_t size;
+    size_t offset;
+    size_t total;
+    const unsigned char *data;
+
+    coap_resource_notify_observers(resource, NULL);
+
+    if (strcmp ((char *)g_proto.buff, INITIAL_DATA) == 0) {
+        coap_pdu_set_code(response, COAP_RESPONSE_CODE_CREATED);
+    } else {
+        coap_pdu_set_code(response, COAP_RESPONSE_CODE_CHANGED);
     }
-    memset(pbuff, 0, size);
-    return ESP_OK;
+
+    /* coap_get_data_large() sets size to 0 on error */
+    (void)coap_get_data_large(request, &size, &data, &offset, &total);
+
+    if (size == 0) {      /* re-init */
+        snprintf((char *)g_proto.buff, g_proto.buff_size, INITIAL_DATA);
+        g_proto.buff_len = strlen((char *)g_proto.buff);
+    } else {
+        g_proto.buff_len = size > g_proto.buff_size ? g_proto.buff_size : size;
+        memcpy(g_proto.buff, data, g_proto.buff_len);
+    }
 }
 
-static esp_err_t osh_coap_buff_free(void *buff) {
-    if (NULL != buff) free(buff);
-    return ESP_OK;
+static void
+hnd_espressif_delete(coap_resource_t *resource,
+                     coap_session_t *session,
+                     const coap_pdu_t *request,
+                     const coap_string_t *query,
+                     coap_pdu_t *response)
+{
+    coap_resource_notify_observers(resource, NULL);
+    snprintf((char *)g_proto.buff, g_proto.buff_size, INITIAL_DATA);
+    g_proto.buff_len = strlen((char *)g_proto.buff);
+    coap_pdu_set_code(response, COAP_RESPONSE_CODE_DELETED);
+}
+// ---------------------------------------
+
+
+#ifdef CONFIG_NODE_COAP_MBEDTLS_PKI
+static int verify_cn_callback(const char *cn,
+                   const uint8_t *asn1_public_cert,
+                   size_t asn1_length,
+                   coap_session_t *session,
+                   unsigned depth,
+                   int validated,
+                   void *arg
+                  ) {
+    coap_log_info("CN '%s' presented by server (%s)\n",
+                  cn, depth ? "CA" : "Certificate");
+    return 1;
+}
+#endif /* CONFIG_NODE_COAP_MBEDTLS_PKI */
+
+static void coap_log_handler (coap_log_t level, const char *message) {
+    uint32_t esp_level = ESP_LOG_INFO;
+    const char *cp = strchr(message, '\n');
+
+    while (cp) {
+        ESP_LOG_LEVEL(esp_level, PROTO_TAG, "%.*s", (int)(cp - message), message);
+        message = cp + 1;
+        cp = strchr(message, '\n');
+    }
+    if (message[0] != '\000') {
+        ESP_LOG_LEVEL(esp_level, PROTO_TAG, "%s", message);
+    }
 }
 
-static esp_err_t osh_coap_init_proto(void *arg) {
-    memset(&g_coap_proto, 0, sizeof(osh_coap_proto));
-    g_coap_proto.finished = 1;
-    vListInitialise(&g_coap_proto.handlers);
-    g_coap_proto.arg = arg;
-    return ESP_OK;
-}
+static void coap_server(void * arg) {
+    coap_context_t *ctx = NULL;
+    int have_ep = 0;
+    uint16_t u_s_port = atoi(CONFIG_NODE_COAP_PORT);
+#ifdef CONFIG_NODE_COAPS_PORT
+    uint16_t s_port = atoi(CONFIG_NODE_COAPS_PORT);
+#else /* ! CONFIG_NODE_COAPS_PORT */
+    uint16_t s_port = 0;
+#endif /* ! CONFIG_NODE_COAPS_PORT */
 
-static esp_err_t osh_coap_fini_proto(void) {
-    if (!listLIST_IS_EMPTY(&g_coap_proto.handlers)) {
-        // not empty list
-        osh_request_handler_stru *handler = NULL;
-        listFOR_EACH_ENTRY(&g_coap_proto.handlers, osh_request_handler_stru, handler) {
-            ESP_LOGI(PROTO_TAG, "free request %d handler",
-                    (int)handler->request_code);
-            uxListRemove(&handler->request_item);   // remove from list
+    uint32_t scheme_hint_bits;
+
+    /* Initialize libcoap library */
+    coap_startup();
+
+    snprintf((char *)g_proto.buff, g_proto.buff_size, INITIAL_DATA);
+    g_proto.buff_len = strlen((char *)g_proto.buff);
+    coap_set_log_handler(coap_log_handler);
+    coap_set_log_level(CONFIG_COAP_LOG_DEFAULT_LEVEL);
+
+    while (1) {
+        unsigned wait_ms;
+        coap_addr_info_t *info = NULL;
+        coap_addr_info_t *info_list = NULL;
+
+        ctx = coap_new_context(NULL);
+        if (!ctx) {
+            ESP_LOGE(PROTO_TAG, "coap_new_context() failed");
+            goto clean_up;
+        }
+        coap_context_set_block_mode(ctx,
+                                    COAP_BLOCK_USE_LIBCOAP | COAP_BLOCK_SINGLE_BODY);
+        coap_context_set_max_idle_sessions(ctx, 20);
+
+#ifdef CONFIG_NODE_COAP_MBEDTLS_PSK
+        /* Need PSK setup before we set up endpoints */
+        coap_context_set_psk(ctx, "CoAP",
+                             (const uint8_t *)CONFIG_NODE_COAP_PSK_KEY,
+                             sizeof(CONFIG_NODE_COAP_PSK_KEY) - 1);
+#endif /* CONFIG_NODE_COAP_MBEDTLS_PSK */
+
+#ifdef CONFIG_NODE_COAP_MBEDTLS_PKI
+        /* Need PKI setup before we set up endpoints */
+        unsigned int ca_pem_bytes = ca_pem_end - ca_pem_start;
+        unsigned int server_crt_bytes = server_crt_end - server_crt_start;
+        unsigned int server_key_bytes = server_key_end - server_key_start;
+        coap_dtls_pki_t dtls_pki;
+
+        memset (&dtls_pki, 0, sizeof(dtls_pki));
+        dtls_pki.version = COAP_DTLS_PKI_SETUP_VERSION;
+        if (ca_pem_bytes) {
+            /*
+             * Add in additional certificate checking.
+             * This list of enabled can be tuned for the specific
+             * requirements - see 'man coap_encryption'.
+             *
+             * Note: A list of root ca file can be setup separately using
+             * coap_context_set_pki_root_cas(), but the below is used to
+             * define what checking actually takes place.
+             */
+            dtls_pki.verify_peer_cert        = 1;
+            dtls_pki.check_common_ca         = 1;
+            dtls_pki.allow_self_signed       = 1;
+            dtls_pki.allow_expired_certs     = 1;
+            dtls_pki.cert_chain_validation   = 1;
+            dtls_pki.cert_chain_verify_depth = 2;
+            dtls_pki.check_cert_revocation   = 1;
+            dtls_pki.allow_no_crl            = 1;
+            dtls_pki.allow_expired_crl       = 1;
+            dtls_pki.allow_bad_md_hash       = 1;
+            dtls_pki.allow_short_rsa_length  = 1;
+            dtls_pki.validate_cn_call_back   = verify_cn_callback;
+            dtls_pki.cn_call_back_arg        = NULL;
+            dtls_pki.validate_sni_call_back  = NULL;
+            dtls_pki.sni_call_back_arg       = NULL;
+        }
+        dtls_pki.pki_key.key_type = COAP_PKI_KEY_PEM_BUF;
+        dtls_pki.pki_key.key.pem_buf.public_cert = server_crt_start;
+        dtls_pki.pki_key.key.pem_buf.public_cert_len = server_crt_bytes;
+        dtls_pki.pki_key.key.pem_buf.private_key = server_key_start;
+        dtls_pki.pki_key.key.pem_buf.private_key_len = server_key_bytes;
+        dtls_pki.pki_key.key.pem_buf.ca_cert = ca_pem_start;
+        dtls_pki.pki_key.key.pem_buf.ca_cert_len = ca_pem_bytes;
+
+        coap_context_set_pki(ctx, &dtls_pki);
+#endif /* CONFIG_NODE_COAP_MBEDTLS_PKI */
+
+        /* set up the CoAP server socket(s) */
+        scheme_hint_bits =
+            coap_get_available_scheme_hint_bits(
+#if defined(CONFIG_NODE_COAP_MBEDTLS_PSK) || defined(CONFIG_NODE_COAP_MBEDTLS_PKI)
+                1,
+#else /* ! CONFIG_NODE_COAP_MBEDTLS_PSK) && ! CONFIG_NODE_COAP_MBEDTLS_PKI */
+                0,
+#endif /* ! CONFIG_NODE_COAP_MBEDTLS_PSK) && ! CONFIG_NODE_COAP_MBEDTLS_PKI */
+                0,
+                0);
+
+        info_list = coap_resolve_address_info(coap_make_str_const("0.0.0.0"), u_s_port, s_port,
+                                              0, 0, 0,
+                                              scheme_hint_bits,
+                                              COAP_RESOLVE_TYPE_LOCAL);
+        if (info_list == NULL) {
+            ESP_LOGE(PROTO_TAG, "coap_resolve_address_info() failed");
+            goto clean_up;
+        }
+
+        for (info = info_list; info != NULL; info = info->next) {
+            coap_endpoint_t *ep;
+
+            ep = coap_new_endpoint(ctx, &info->addr, info->proto);
+            if (!ep) {
+                ESP_LOGW(PROTO_TAG, "cannot create endpoint for proto %u", info->proto);
+            } else {
+                have_ep = 1;
+            }
+        }
+        coap_free_address_info(info_list);
+        if (!have_ep) {
+            ESP_LOGE(PROTO_TAG, "No endpoints available");
+            goto clean_up;
+        }
+
+        // TODO register all route
+        coap_resource_t *resource = NULL;
+        resource = coap_resource_init(coap_make_str_const("Espressif"), 0);
+        if (!resource) {
+            ESP_LOGE(PROTO_TAG, "coap_resource_init() failed");
+            goto clean_up;
+        }
+
+        coap_register_handler(resource, COAP_REQUEST_GET, hnd_espressif_get);
+        coap_register_handler(resource, COAP_REQUEST_PUT, hnd_espressif_put);
+        coap_register_handler(resource, COAP_REQUEST_DELETE, hnd_espressif_delete);
+        /* We possibly want to Observe the GETs */
+        coap_resource_set_get_observable(resource, 1);
+        coap_add_resource(ctx, resource);
+
+        // multicast
+        esp_netif_t *netif = NULL;
+        for (int i = 0; i < esp_netif_get_nr_of_ifs(); ++i) {
+            char buf[8];
+            netif = esp_netif_next_unsafe(netif);
+            esp_netif_get_netif_impl_name(netif, buf);
+            coap_join_mcast_group_intf(ctx, CONFIG_NODE_COAP_MULTICAST_ADDR, buf);
+        }
+
+
+        wait_ms = COAP_RESOURCE_CHECK_TIME * 1000;
+
+        while (1) {
+            int result = coap_io_process(ctx, wait_ms);
+            if (result < 0) {
+                break;
+            } else if (result && (unsigned)result < wait_ms) {
+                /* decrement if there is a result wait time returned */
+                wait_ms -= result;
+            }
+            if (result) {
+                /* result must have been >= wait_ms, so reset wait_ms */
+                wait_ms = COAP_RESOURCE_CHECK_TIME * 1000;
+            }
         }
     }
-    return ESP_OK;
+clean_up:
+    coap_free_context(ctx);
+    coap_cleanup();
+
+    vTaskDelete(NULL);
 }
 
-static esp_err_t osh_coap_reset_proto(void) {
-    g_coap_proto.finished = 1;
-    g_coap_proto.sequence++;
-    return ESP_OK;
-}
+/** -------------------------------
+ *            functions
+ *  -------------------------------
+*/
 
-static esp_err_t osh_coap_new_msg(osh_node_proto_msg **pmsg, size_t token_len,
-                        size_t delta_len, size_t value_len, size_t payload_len) {
-
-    return ESP_OK;
-}
-
-static esp_err_t osh_coap_free_msg(osh_node_proto_msg *msg) {
-    return ESP_OK;
-}
-
-static esp_err_t osh_coap_decode_msg(uint8_t *buff, size_t len, void *arg) {
-    return ESP_OK;
-}
-
-static esp_err_t osh_coap_encode_msg(osh_node_proto_msg *msg,
-                        uint8_t *buff, size_t buff_size, size_t *len) {
-    return ESP_OK;
-}
-
-
-osh_node_proto *create_default_proto(void) {
-    osh_node_proto_msg *msg = malloc(sizeof(osh_node_proto_msg));
-    if (NULL == msg) {
-        ESP_LOGE(PROTO_TAG, "failed to malloc msg");
-        return NULL;
-    }
-    osh_node_proto *proto = malloc(sizeof(osh_node_proto));
-    if (NULL == proto) {
-        ESP_LOGE(PROTO_TAG, "failed to malloc proto");
-        goto clear;
-    }
-    proto->malloc = osh_coap_buff_malloc;
-    proto->free = osh_coap_buff_free;
-    proto->init = osh_coap_init_proto;
-    proto->fini = osh_coap_fini_proto;
-    proto->reset = osh_coap_reset_proto;
-    proto->new_msg = osh_coap_new_msg;
-    proto->free_msg = osh_coap_free_msg;
-    proto->decode = osh_coap_decode_msg;
-    proto->encode = osh_coap_encode_msg;
-    return proto;
-clear:
-    if (NULL != msg) {
-        free(msg);
-    }
-    return NULL;
-}
-
-esp_err_t register_request(uint8_t request_code, handle_request handler) {
-    // create
-    osh_request_handler_stru *req_handler = malloc(sizeof(osh_request_handler_stru));
-    if (NULL == req_handler) {
-        ESP_LOGE(PROTO_TAG, "failedto malloc request %d", (int)request_code);
+/* init proto */
+esp_err_t osh_node_proto_init(size_t buff_size, void * conf_arg) {
+    memset(&g_proto, 0, sizeof(osh_node_proto_t));
+    g_proto.buff = malloc(buff_size);
+    if (NULL == g_proto.buff) {
+        ESP_LOGE(PROTO_TAG, "failedto malloc mem for proto");
         return ESP_ERR_NO_MEM;
     }
+    memset(g_proto.buff, 0, buff_size);
+    g_proto.buff_size = buff_size;
+    return ESP_OK;
+}
 
-    // init
-    memset(req_handler, 0, sizeof(osh_request_handler_stru));
-    vListInitialiseItem(&req_handler->request_item);
-    listSET_LIST_ITEM_OWNER(&req_handler->request_item, req_handler);
-    req_handler->request_code = request_code;
-    req_handler->handler = handler;
+/* fini proto */
+esp_err_t osh_node_proto_fini(void) {
+    if (NULL != g_proto.buff) {
+        free(g_proto.buff);
+        g_proto.buff_size = 0;
+        g_proto.buff = NULL;
+    }
+    return ESP_OK;
+}
 
-    // insert to list
-    req_handler->request_item.xItemValue = (int)request_code;  // using bits as value
-    vListInsert(&g_coap_proto.handlers, &req_handler->request_item);
+/* start proto */
+esp_err_t osh_node_proto_start(void) {
+    xTaskCreate(coap_server, "coap", 8*1024, &g_proto, 5, &g_proto.coap_task);
+    return ESP_OK;
+}
 
-    ESP_LOGI(PROTO_TAG, "create handler for request %d", (int)request_code);
+/* stop proto */
+esp_err_t osh_node_proto_stop(void) {
+    vTaskDelete(g_proto.coap_task);
+    memset(g_proto.buff, 0, g_proto.buff_size);
+    g_proto.buff_len = 0;
+    return ESP_OK;
+}
+
+
+/* register handler */
+esp_err_t osh_node_proto_register_request(coap_request_t method,
+                                          const char* uri,
+                                          coap_route_cb handler) {
+    // register route into list
     return ESP_OK;
 }

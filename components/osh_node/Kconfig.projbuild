@@ -40,14 +40,44 @@ config NODE_NETWORK_TRANSPORT
     default 1 if NODE_NETWORK_TRANSPORT_WIFI
     default 2 if NODE_NETWORK_TRANSPORT_BLE
 
-menu "UDP Server"
+menu "COAP Server"
+    choice NODE_COAP_SECURE_MODE
+        prompt "Secure mode of coap"
+        config NODE_COAP_SECURE_NONE
+            bool "None"
+            default n
+        config NODE_COAP_MBEDTLS_PSK
+            bool "Pre-Shared Keys"
+            default n
+            select COAP_MBEDTLS_PSK
+        config NODE_COAP_MBEDTLS_PKI
+            bool "PKI Certificates"
+            default y
+            select COAP_MBEDTLS_PKI
+    endchoice
+    config NODE_COAP_PSK_KEY
+        string "Preshared Key (PSK) to used in the connection from the CoAP client"
+        depends on NODE_COAP_MBEDTLS_PSK
+        default "secret-key"
+        help
+            The Preshared Key to use to encrypt the communicatons. The same key must be
+            used at both ends of the CoAP connection, and the CoaP client must request
+            an URI prefixed with coaps:// instead of coap:// for DTLS to be used.
     depends on NODE_NETWORK_TRANSPORT_WIFI
-    config NODE_UDP_PORT
-        int "UDP port when using WiFi"
-        default 39199
-    config NODE_UDP_STACK_SIZE
-        int "UDP task stack size"
-        default 2048
+    config NODE_COAP_PORT
+        string "COAP listen port when using WiFi"
+        default "5683"
+    config NODE_COAPS_PORT
+        string "COAP secure listen port"
+        default "5684"
+        depends on NODE_COAP_MBEDTLS_PSK || NODE_COAP_MBEDTLS_PKI
+    config NODE_COAP_MULTICAST_ADDR
+        string "CoAP Multicast IPV4 Address (receive)"
+        default "224.0.1.187"
+        help
+            IPV4 multicast address to receive multicast traffic on.
+
+            The default CoAP IPV4 address is 224.0.1.187.
 endmenu
 
 config NODE_WIFI_PROV_RETRIES

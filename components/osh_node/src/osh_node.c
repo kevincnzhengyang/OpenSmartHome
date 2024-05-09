@@ -44,6 +44,6 @@
 
 
 /* invoke poweron */
-// osh_invoke_event(OSH_NODE_EVENT_POWERON);
+// osh_node_fsm_invoke_event(OSH_NODE_EVENT_POWERON);
 
 // loop

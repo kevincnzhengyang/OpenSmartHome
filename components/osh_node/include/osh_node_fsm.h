@@ -39,30 +39,30 @@ typedef enum {
 } OSH_FSM_STATES_ENUM;
 
 /* Callback for FSM */
-typedef esp_err_t (* osh_FSM_event_callback)(void *config, void *arg);
+typedef esp_err_t (* osh_node_fsm_event_cb)(void *e_conf_arg, void *run_arg);
 
 /* init FSM */
-esp_err_t osh_init_FSM(void *arg);
+esp_err_t osh_node_fsm_init(void *f_conf_arg);
 
 /* register a event and corresponding callback to a state */
-esp_err_t osh_register_FSM(const OSH_FSM_STATES_ENUM state, const EventBits_t uxBitsToWaitFor,
-                            osh_FSM_event_callback handle, void *config);
+esp_err_t osh_node_fsm_register_event(const OSH_FSM_STATES_ENUM state, const EventBits_t uxBitsToWaitFor,
+                                     osh_node_fsm_event_cb handle, void *e_conf_arg);
 
 /* run FSM */
-esp_err_t osh_FSM_loop_step(void *arg);
+esp_err_t osh_node_fsm_loop_step(void *run_arg);
 
 /* fini FSM */
-esp_err_t osh_fini_FSM(void *arg);
+esp_err_t osh_node_fsm_fini(void);
 
 /* invoke event */
-esp_err_t osh_invoke_event(const EventBits_t uxBitsToSet);
-esp_err_t osh_invoke_event_from_ISR(const EventBits_t uxBitsToSet);
+esp_err_t osh_node_fsm_invoke_event(const EventBits_t uxBitsToSet);
+esp_err_t osh_node_fsm_invoke_event_from_ISR(const EventBits_t uxBitsToSet);
 
 /* get state */
-OSH_FSM_STATES_ENUM osh_fsm_get_state(void);
+OSH_FSM_STATES_ENUM osh_node_fsm_get_state(void);
 
 /* set state */
-esp_err_t osh_fsm_set_state(OSH_FSM_STATES_ENUM state);
+esp_err_t osh_node_fsm_set_state(OSH_FSM_STATES_ENUM state);
 
 #ifdef __cplusplus
 }
