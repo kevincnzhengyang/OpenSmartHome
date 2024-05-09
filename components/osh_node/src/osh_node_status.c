@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-04-29 23:47:47
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-01 21:49:19
+ * @LastEditTime: 2024-05-08 20:49:54
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_status.c
  * @Description :
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -93,7 +93,7 @@ esp_err_t osh_node_flush_status(void) {
 // callback for reset
 static void button_press_reset(void *arg, void *data)
 {
-    osh_node_reset_network();
+    osh_node_network_get()->reset();
     esp_restart();
 }
 
@@ -107,7 +107,7 @@ static void button_press_restart(void *arg, void *data)
 esp_err_t osh_node_init_reset_button(void) {
     button_config_t btn_cfg = {
         .type = BUTTON_TYPE_GPIO,
-        .long_press_time = CONFIG_BUTTON_LONG_PRESS_TIME_MS * 1000,
+        .long_press_time = CONFIG_BUTTON_LONG_PRESS_TIME_MS,
         .short_press_time = CONFIG_BUTTON_SHORT_PRESS_TIME_MS,
         .gpio_button_config = {
             .gpio_num = CONFIG_NODE_RESET_GPIO_NUM,

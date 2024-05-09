@@ -48,9 +48,6 @@ menu "UDP Server"
     config NODE_UDP_STACK_SIZE
         int "UDP task stack size"
         default 2048
-    config NODE_UDP_BUFF_SIZE
-        int "UDP recv buffer size"
-        default 512
 endmenu
 
 config NODE_WIFI_PROV_RETRIES

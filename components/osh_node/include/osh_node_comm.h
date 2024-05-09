@@ -21,7 +21,16 @@ extern "C" {
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+#include <freertos/list.h>
+
 #include "esp_log.h"
+
+
+/* macro for traverse the list */
+#define listFOR_EACH_ENTRY(plist, type, owner) \
+    for(ListItem_t const *pos = listGET_HEAD_ENTRY(plist);    \
+        owner = (type *)listGET_LIST_ITEM_OWNER(pos), pos != listGET_END_MARKER(plist); \
+        pos = listGET_NEXT(pos))
 
 #ifdef __cplusplus
 }

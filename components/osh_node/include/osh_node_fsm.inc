@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-04-30 11:35:44
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-04-30 20:33:57
+ * @LastEditTime: 2024-05-08 19:42:36
  * @FilePath    : /OpenSmartHome/components/osh_node/include/osh_node_fsm.inc
  * @Description :  node FSM private header file
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -19,13 +19,6 @@ extern "C" {
 
 #include "osh_node_fsm.h"
 #include "osh_node_errors.h"
-
-/* macro for traverse the list */
-#define listFOR_EACH_ENTRY(plist, type, owner) \
-    for(ListItem_t const *pos = listGET_HEAD_ENTRY(plist);    \
-        owner = (type *)listGET_LIST_ITEM_OWNER(pos), pos != listGET_END_MARKER(plist); \
-        pos = listGET_NEXT(pos))
-
 
 /* callback for FSM */
 typedef esp_err_t (* osh_FSM_step_callback)(void *arg);

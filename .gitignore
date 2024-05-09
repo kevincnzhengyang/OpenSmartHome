@@ -50,3 +50,9 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+# ESP32 project
+build/
+managed_components/
+*.old
+*.devcontainer
