@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-04-30 22:36:41
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-09 22:41:18
+ * @LastEditTime: 2024-05-11 01:00:26
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_wifi.c
  * @Description : WiFi network
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -13,14 +13,21 @@
 #include "esp_netif.h"
 #include "qrcode.h"
 
+#include "esp_ping.h"
 #include "lwip/err.h"
 #include "lwip/sys.h"
 #include "lwip/sockets.h"
+#include "lwip/netdb.h"
+#include "lwip/inet.h"
+#include "lwip/ip4_addr.h"
+#include "lwip/dns.h"
+#include "ping/ping_sock.h"
 
 #include "mbedtls/pk.h"
 #include "mbedtls/md.h"
 #include "mbedtls/error.h"
 
+#include "osh_node_network.h"
 #include "osh_node_wifi.h"
 #include "osh_node_events.h"
 #include "osh_node_fsm.h"
@@ -28,12 +35,16 @@
 
 const char *WIFI_TAG = "WiFi";
 
-#define NODE_NAME_LEN                       12
+#define NODE_NAME_LEN                      12
+#define MAX_PING_TIMEOUT                    5
 
 /* network */
 typedef struct
 {
     char      node_name[NODE_NAME_LEN];
+    uint8_t              timeout_count;
+    TimerHandle_t           ping_timer;
+    ip_addr_t               gateway_ip;
     void                     *conf_arg;
 } osh_node_network;
 
@@ -166,9 +177,14 @@ static void event_handler(void* arg, esp_event_base_t event_base,
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
         ESP_LOGI(WIFI_TAG, "Connected with IP Address:" IPSTR, IP2STR(&event->ip_info.ip));
+
         // change state and invoke OSH_NODE_EVENT_CONNECT
         osh_node_fsm_invoke_event(OSH_NODE_EVENT_CONNECT);
 
+        // Get the DNS server IP dynamically
+        esp_netif_dns_info_t dns;
+        esp_netif_get_dns_info(event->esp_netif, ESP_NETIF_DNS_MAIN, &dns);
+        memcpy(&g_node_wifi.gateway_ip, &dns.ip, sizeof(ip_addr_t));
     } else if (event_base == PROTOCOMM_SECURITY_SESSION_EVENT) {
         switch (event_id) {
             case PROTOCOMM_SECURITY_SESSION_SETUP_OK:
@@ -212,6 +228,40 @@ static void wifi_prov_print_qr(const char *name, const char *username,
     esp_qrcode_config_t cfg = ESP_QRCODE_CONFIG_DEFAULT();
     esp_qrcode_generate(&cfg, payload);
     ESP_LOGI(WIFI_TAG, "If QR code is not visible, copy paste the below URL in a browser.\n%s?data=%s", QRCODE_BASE_URL, payload);
+}
+
+static void ping_on_success(esp_ping_handle_t hdl, void *arg) {
+    ESP_LOGI(WIFI_TAG, "ping gateway OK");
+    g_node_wifi.timeout_count = 0;  // reset
+}
+
+static void ping_on_timeout(esp_ping_handle_t hdl, void *args) {
+    ESP_LOGE(WIFI_TAG, "ping gateway timeout");
+    if (MAX_PING_TIMEOUT > ++g_node_wifi.timeout_count) {
+        // invoke event
+        g_node_wifi.timeout_count = 0; // reset
+        osh_node_fsm_invoke_event(OSH_NODE_EVENT_DISCONNECT);
+        esp_wifi_connect();
+    }
+}
+
+static void ping_timeout_cb(TimerHandle_t timer) {
+    esp_ping_config_t config = ESP_PING_DEFAULT_CONFIG();
+    config.target_addr = g_node_wifi.gateway_ip;
+
+    /* set callback functions */
+    esp_ping_callbacks_t cbs = {
+        .cb_args = NULL,
+        .on_ping_success = ping_on_success,
+        .on_ping_timeout = ping_on_timeout,
+        .on_ping_end = NULL
+    };
+    esp_ping_handle_t ping;
+    esp_ping_new_session(&config, &cbs, &ping);
+
+    // start ping
+    esp_ping_start(ping);
+
 }
 
 /** -------------------------------
@@ -350,6 +400,9 @@ static esp_err_t osh_node_wifi_init_connect(void *config, void *arg) {
     // change state to OSH_FSM_STATE_IDLE
     osh_node_fsm_set_state(OSH_FSM_STATE_IDLE);
 
+    // start ping timer
+    xTimerStart(g_node_wifi.ping_timer, 0);
+
     return ESP_OK;
 }
 
@@ -363,6 +416,10 @@ static esp_err_t osh_node_wifi_on_disconnect(void *config, void *arg) {
 
     // change state to OSH_FSM_STATE_INIT
     osh_node_fsm_set_state(OSH_FSM_STATE_INIT);
+
+    // stop ping timer
+    xTimerStop(g_node_wifi.ping_timer, 0);
+
     return ESP_OK;
 }
 
@@ -391,12 +448,23 @@ esp_err_t osh_node_wifi_init(void *conf_arg) {
 
     g_node_wifi.conf_arg = conf_arg;
 
+    g_node_wifi.ping_timer = xTimerCreate("ping_timer",
+                                    pdMS_TO_TICKS(CONFIG_NODE_WIFI_CHECK_PERIOD),
+                                    pdTRUE, NULL,
+                                    ping_timeout_cb);
+    if (g_node_wifi.ping_timer == NULL) {
+        ESP_LOGE(WIFI_TAG, "Failed to create ping timer");
+        return OSH_ERR_NET_INNER;
+    }
+
+    //  TODO
     /* register event callback to FSM */
     return ESP_OK;
 }
 
 /* start WiFi */
 esp_err_t osh_node_wifi_start(void *run_arg) {
+    // TODO start timer for check WiFi
     osh_node_fsm_invoke_event(OSH_NODE_EVENT_POWERON);
     return ESP_OK;
 }
