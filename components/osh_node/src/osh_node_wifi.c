@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-04-30 22:36:41
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-11 01:00:26
+ * @LastEditTime: 2024-05-11 01:20:48
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_wifi.c
  * @Description : WiFi network
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -395,7 +395,8 @@ static esp_err_t osh_node_wifi_init_poweron(void *config, void *arg) {
  * next state: OSH_FSM_STATE_IDLE, wait for request
 */
 static esp_err_t osh_node_wifi_init_connect(void *config, void *arg) {
-    // TODO start coap proto
+    // start coap proto
+    osh_node_proto_start();
 
     // change state to OSH_FSM_STATE_IDLE
     osh_node_fsm_set_state(OSH_FSM_STATE_IDLE);
@@ -407,12 +408,13 @@ static esp_err_t osh_node_wifi_init_connect(void *config, void *arg) {
 }
 
 /**
- * state: OSH_FSM_STATE_IDLE, OSH_FSM_STATE_ONGOING
+ * state: OSH_FSM_STATE_IDLE
  * event: OSH_NODE_EVENT_DISCONNECT
  * next state: OSH_FSM_STATE_INIT, wait for connect
 */
 static esp_err_t osh_node_wifi_on_disconnect(void *config, void *arg) {
-    // TODO stop coap proto
+    // stop coap proto
+    osh_node_proto_stop();
 
     // change state to OSH_FSM_STATE_INIT
     osh_node_fsm_set_state(OSH_FSM_STATE_INIT);
@@ -457,14 +459,22 @@ esp_err_t osh_node_wifi_init(void *conf_arg) {
         return OSH_ERR_NET_INNER;
     }
 
-    //  TODO
     /* register event callback to FSM */
+    ESP_ERROR_CHECK(osh_node_fsm_register_event(
+                        OSH_FSM_STATE_INIT, OSH_NODE_EVENT_POWERON,
+                        osh_node_wifi_init_poweron, NULL));
+    ESP_ERROR_CHECK(osh_node_fsm_register_event(
+                        OSH_FSM_STATE_INIT, OSH_NODE_EVENT_CONNECT,
+                        osh_node_wifi_init_connect, NULL));
+    ESP_ERROR_CHECK(osh_node_fsm_register_event(
+                        OSH_FSM_STATE_IDLE, OSH_NODE_EVENT_DISCONNECT,
+                        osh_node_wifi_on_disconnect, NULL));
+
     return ESP_OK;
 }
 
 /* start WiFi */
 esp_err_t osh_node_wifi_start(void *run_arg) {
-    // TODO start timer for check WiFi
     osh_node_fsm_invoke_event(OSH_NODE_EVENT_POWERON);
     return ESP_OK;
 }
