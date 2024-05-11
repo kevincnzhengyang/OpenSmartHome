@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-05-08 19:20:33
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-09 23:11:46
+ * @LastEditTime: 2024-05-11 22:28:36
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_proto.c
  * @Description :
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -41,88 +41,7 @@ extern uint8_t server_key_start[] asm("_binary_coap_server_key_start");
 extern uint8_t server_key_end[]   asm("_binary_coap_server_key_end");
 #endif /* CONFIG_NODE_COAP_MBEDTLS_PKI */
 
-#define INITIAL_DATA "Hello World!"
-
-/* default request handler */
-static void dft_request_handler(coap_resource_t *resource,
-                                coap_session_t *session,
-                                const coap_pdu_t *request,
-                                const coap_string_t *query,
-                                coap_pdu_t *response) {
-    // TODO dispatch request to route callback
-    coap_pdu_set_code(response, COAP_RESPONSE_CODE_CONTENT);
-    coap_add_data_large_response(resource, session, request, response,
-                                 query, COAP_MEDIATYPE_TEXT_PLAIN, 60, 0,
-                                 g_proto.buff_len,
-                                 g_proto.buff,
-                                 NULL, NULL);
-}
-
-// -------------------------------------
-/*
- * The resource handler
- */
-static void
-hnd_espressif_get(coap_resource_t *resource,
-                  coap_session_t *session,
-                  const coap_pdu_t *request,
-                  const coap_string_t *query,
-                  coap_pdu_t *response)
-{
-    coap_pdu_set_code(response, COAP_RESPONSE_CODE_CONTENT);
-    coap_add_data_large_response(resource, session, request, response,
-                                 query, COAP_MEDIATYPE_TEXT_PLAIN, 60, 0,
-                                 g_proto.buff_len,
-                                 g_proto.buff,
-                                 NULL, NULL);
-}
-
-static void
-hnd_espressif_put(coap_resource_t *resource,
-                  coap_session_t *session,
-                  const coap_pdu_t *request,
-                  const coap_string_t *query,
-                  coap_pdu_t *response)
-{
-    size_t size;
-    size_t offset;
-    size_t total;
-    const unsigned char *data;
-
-    coap_resource_notify_observers(resource, NULL);
-
-    if (strcmp ((char *)g_proto.buff, INITIAL_DATA) == 0) {
-        coap_pdu_set_code(response, COAP_RESPONSE_CODE_CREATED);
-    } else {
-        coap_pdu_set_code(response, COAP_RESPONSE_CODE_CHANGED);
-    }
-
-    /* coap_get_data_large() sets size to 0 on error */
-    (void)coap_get_data_large(request, &size, &data, &offset, &total);
-
-    if (size == 0) {      /* re-init */
-        snprintf((char *)g_proto.buff, g_proto.buff_size, INITIAL_DATA);
-        g_proto.buff_len = strlen((char *)g_proto.buff);
-    } else {
-        g_proto.buff_len = size > g_proto.buff_size ? g_proto.buff_size : size;
-        memcpy(g_proto.buff, data, g_proto.buff_len);
-    }
-}
-
-static void
-hnd_espressif_delete(coap_resource_t *resource,
-                     coap_session_t *session,
-                     const coap_pdu_t *request,
-                     const coap_string_t *query,
-                     coap_pdu_t *response)
-{
-    coap_resource_notify_observers(resource, NULL);
-    snprintf((char *)g_proto.buff, g_proto.buff_size, INITIAL_DATA);
-    g_proto.buff_len = strlen((char *)g_proto.buff);
-    coap_pdu_set_code(response, COAP_RESPONSE_CODE_DELETED);
-}
-// ---------------------------------------
-
+// #define INITIAL_DATA "Hello World!"
 
 #ifdef CONFIG_NODE_COAP_MBEDTLS_PKI
 static int verify_cn_callback(const char *cn,
@@ -168,8 +87,8 @@ static void coap_server(void * arg) {
     /* Initialize libcoap library */
     coap_startup();
 
-    snprintf((char *)g_proto.buff, g_proto.buff_size, INITIAL_DATA);
-    g_proto.buff_len = strlen((char *)g_proto.buff);
+    // snprintf((char *)g_proto.buff, g_proto.buff_size, INITIAL_DATA);
+    // g_proto.buff_len = strlen((char *)g_proto.buff);
     coap_set_log_handler(coap_log_handler);
     coap_set_log_level(CONFIG_COAP_LOG_DEFAULT_LEVEL);
 
@@ -276,20 +195,31 @@ static void coap_server(void * arg) {
             goto clean_up;
         }
 
-        // TODO register all route
-        coap_resource_t *resource = NULL;
-        resource = coap_resource_init(coap_make_str_const("Espressif"), 0);
-        if (!resource) {
-            ESP_LOGE(PROTO_TAG, "coap_resource_init() failed");
-            goto clean_up;
-        }
+        // register all routes
+        if (!listLIST_IS_EMPTY(&g_proto.entry_list)) {
+            // have entry
+            osh_node_proto_entry_t *entry = NULL;
+            listFOR_EACH_ENTRY(&g_proto.entry_list, osh_node_proto_entry_t, entry) {
+                if (!listLIST_IS_EMPTY(&entry->route_list)) {
+                    // have routes, create resource and register coap handlers
+                            coap_resource_t *resource = coap_resource_init(coap_make_str_const(entry->uri), 0);
+                            if (!resource) {
+                                ESP_LOGE(PROTO_TAG, "coap_resource_init() failed");
+                                goto clean_up;
+                            }
+                            osh_node_proto_route_t *route = NULL;
+                            listFOR_EACH_ENTRY(&entry->route_list, osh_node_proto_route_t, route) {
+                                coap_register_handler(resource, route->method, route->route_cb);
+                                ESP_LOGI(PROTO_TAG, "register coap %s: %d", entry->uri, (int)route->method);
+                            }
 
-        coap_register_handler(resource, COAP_REQUEST_GET, hnd_espressif_get);
-        coap_register_handler(resource, COAP_REQUEST_PUT, hnd_espressif_put);
-        coap_register_handler(resource, COAP_REQUEST_DELETE, hnd_espressif_delete);
-        /* We possibly want to Observe the GETs */
-        coap_resource_set_get_observable(resource, 1);
-        coap_add_resource(ctx, resource);
+                            /* We possibly want to Observe the GETs */
+                            coap_resource_set_get_observable(resource, 1);
+
+                            coap_add_resource(ctx, resource);
+                }
+            }
+        }
 
         // multicast
         esp_netif_t *netif = NULL;
@@ -338,7 +268,11 @@ esp_err_t osh_node_proto_init(size_t buff_size, void * conf_arg) {
         return ESP_ERR_NO_MEM;
     }
     memset(g_proto.buff, 0, buff_size);
+
+    // init entry list
+    vListInitialise(&g_proto.entry_list);
     g_proto.buff_size = buff_size;
+
     return ESP_OK;
 }
 
@@ -354,23 +288,99 @@ esp_err_t osh_node_proto_fini(void) {
 
 /* start proto */
 esp_err_t osh_node_proto_start(void) {
-    xTaskCreate(coap_server, "coap", 8*1024, &g_proto, 5, &g_proto.coap_task);
+    if (NULL == g_proto.coap_task) {
+        // create coap task if not existed
+        xTaskCreate(coap_server, "coap", 8*1024, &g_proto, 5, &g_proto.coap_task);
+    } else {
+        // suspend coap task if existed
+        vTaskResume(g_proto.coap_task);
+    }
+
     return ESP_OK;
 }
 
 /* stop proto */
 esp_err_t osh_node_proto_stop(void) {
-    vTaskDelete(g_proto.coap_task);
+    // clear up buffer
     memset(g_proto.buff, 0, g_proto.buff_size);
     g_proto.buff_len = 0;
+
+    // resume coap task
+    vTaskSuspend(g_proto.coap_task);
     return ESP_OK;
 }
 
 
 /* register handler */
-esp_err_t osh_node_proto_register_request(coap_request_t method,
-                                          const char* uri,
+esp_err_t osh_node_proto_register_request(const char* uri,
+                                        coap_request_t method,
                                           coap_route_cb handler) {
-    // register route into list
+    esp_err_t res = ESP_FAIL;
+
+    osh_node_proto_entry_t *entry = NULL;
+    osh_node_proto_route_t *route = NULL;
+
+    // find the uri
+    if (!listLIST_IS_EMPTY(&g_proto.entry_list)) {
+        osh_node_proto_entry_t *tmp_entry = NULL;
+        listFOR_EACH_ENTRY(&g_proto.entry_list, osh_node_proto_entry_t, tmp_entry) {
+            if (0 == strncmp(uri, tmp_entry->uri, strlen(tmp_entry->uri))) {
+                // matched
+                entry = tmp_entry;
+                break;
+            }
+        }
+    }
+
+    if (NULL == entry) {
+        // not matched, create a new entry
+        entry = (osh_node_proto_entry_t *)malloc(sizeof(osh_node_proto_entry_t));
+        if (NULL == entry) {
+            ESP_LOGE(PROTO_TAG, "failed to malloc mem for entry %s", uri);
+            res = ESP_ERR_NO_MEM;
+            goto clearup;
+        }
+        entry->uri = strdup(uri);
+        if (NULL == entry->uri) {
+            ESP_LOGE(PROTO_TAG, "failed to malloc mem for uri %s", uri);
+            res = ESP_ERR_NO_MEM;
+            goto clearup;
+        }
+        // init entry list
+        vListInitialise(&entry->route_list);
+        // init entry item
+        vListInitialiseItem(&entry->entry_item);
+
+        // add entry to list
+        listSET_LIST_ITEM_OWNER(&entry->entry_item, entry);
+        vListInsert(&g_proto.entry_list, &entry->entry_item);
+    }
+
+    // register route into entry
+    route = malloc(sizeof(osh_node_proto_route_t));
+    if (NULL == route) {
+        ESP_LOGE(PROTO_TAG, "failed to malloc for route %s, method %d", uri, (int)method);
+        res = ESP_ERR_NO_MEM;
+        goto clearup;
+    }
+    memset(route, 0, sizeof(osh_node_proto_route_t));
+
+    route->method = method;
+    vListInitialiseItem(&route->route_item);
+    listSET_LIST_ITEM_OWNER(&route->route_item, route);
+
+    // insert to route list
+    route->route_item.xItemValue = (int)method;  // using bits as value
+    vListInsert(&entry->route_list, &route->route_item);
+
+    ESP_LOGI(PROTO_TAG, "create route %s, method %d", uri, (int)method);
     return ESP_OK;
+
+clearup:
+    if (NULL != entry) {
+        if (NULL != entry->uri) free(entry->uri);
+        free(entry);
+    }
+    if (NULL != route) free(route);
+    return res;
 }
