@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-04-29 23:47:47
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-09 21:04:24
+ * @LastEditTime: 2024-05-13 23:04:12
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_status.c
  * @Description :
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -53,40 +53,48 @@ esp_err_t osh_node_status_init(void) {
     return ESP_OK;
 }
 
-/* flush status */
-esp_err_t osh_node_status_refresh(void) {
-    // get state
-    OSH_FSM_STATES_ENUM state = osh_node_fsm_get_state();
-    state = (OSH_FSM_STATE_BUTT < state) ? OSH_FSM_STATE_BUTT : state;
+static void status_task(void * arg) {
+    while(1) {
+        // get state
+        OSH_FSM_STATES_ENUM state = osh_node_fsm_get_state();
+        state = (OSH_FSM_STATE_BUTT < state) ? OSH_FSM_STATE_BUTT : state;
 
-    TickType_t this_time = xTaskGetTickCount();
+        TickType_t this_time = xTaskGetTickCount();
 
-    if (last_state != state) {
-        // update
-        last_time = this_time;
-        last_state = state;
-        led_flag = pdTRUE;
+        if (last_state != state) {
+            // update
+            last_time = this_time;
+            last_state = state;
+            led_flag = pdTRUE;
 
-    }else if (((this_time - last_time) / (float)configTICK_RATE_HZ) > 2.0f) {
-        // reverse and update last time
-        led_flag =  !led_flag;
-        last_time = this_time;
+        }else if (((this_time - last_time) / (float)configTICK_RATE_HZ) > 2.0f) {
+            // reverse and update last time
+            led_flag =  !led_flag;
+            last_time = this_time;
+        }
+
+        if (led_flag) {
+            // set RGB
+            gpio_set_level(CONFIG_STATUS_R_LED_GPIO_NUM,
+                        (status_rgb[state] & 0xFF0000) >> 16);
+            gpio_set_level(CONFIG_STATUS_G_LED_GPIO_NUM,
+                        (status_rgb[state] & 0x00FF00) >> 8);
+            gpio_set_level(CONFIG_STATUS_B_LED_GPIO_NUM,
+                        (status_rgb[state] & 0xFF));
+        } else {
+            // turn off
+            gpio_set_level(CONFIG_STATUS_R_LED_GPIO_NUM, 0);
+            gpio_set_level(CONFIG_STATUS_G_LED_GPIO_NUM, 0);
+            gpio_set_level(CONFIG_STATUS_B_LED_GPIO_NUM, 0);
+        }
+         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
+    vTaskDelete(NULL);
+}
 
-    if (led_flag) {
-        // set RGB
-        gpio_set_level(CONFIG_STATUS_R_LED_GPIO_NUM,
-                    (status_rgb[state] & 0xFF0000) >> 16);
-        gpio_set_level(CONFIG_STATUS_G_LED_GPIO_NUM,
-                    (status_rgb[state] & 0x00FF00) >> 8);
-        gpio_set_level(CONFIG_STATUS_B_LED_GPIO_NUM,
-                    (status_rgb[state] & 0xFF));
-    } else {
-        // turn off
-        gpio_set_level(CONFIG_STATUS_R_LED_GPIO_NUM, 0);
-        gpio_set_level(CONFIG_STATUS_G_LED_GPIO_NUM, 0);
-        gpio_set_level(CONFIG_STATUS_B_LED_GPIO_NUM, 0);
-    }
+/* start status  task*/
+esp_err_t osh_node_status_start(void) {
+    xTaskCreate(status_task, "status", 512, NULL, 2, NULL);
     return ESP_OK;
 }
 

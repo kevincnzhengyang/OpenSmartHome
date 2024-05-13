@@ -24,7 +24,7 @@ extern "C" {
 #include "osh_node_wifi.h"
 
 /* config node network with WiFi */
-#define osh_node_network_init(conf_arg) osh_node_wifi_init(conf_arg)
+#define osh_node_network_init(proto_buff_size, conf_arg) osh_node_wifi_init(proto_buff_size, conf_arg)
 
 #define osh_node_network_start(run_arg) osh_node_wifi_start(run_arg)
 

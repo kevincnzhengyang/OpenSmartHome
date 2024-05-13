@@ -28,7 +28,7 @@ extern "C" {
 */
 
 /* init WiFi */
-esp_err_t osh_node_wifi_init(void *conf_arg);
+esp_err_t osh_node_wifi_init(size_t proto_buff_size, void *conf_arg);
 
 /* start WiFi */
 esp_err_t osh_node_wifi_start(void *run_arg);

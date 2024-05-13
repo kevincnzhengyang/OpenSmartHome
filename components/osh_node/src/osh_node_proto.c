@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-05-08 19:20:33
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-11 22:28:36
+ * @LastEditTime: 2024-05-13 22:17:35
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_proto.c
  * @Description :
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -312,9 +312,9 @@ esp_err_t osh_node_proto_stop(void) {
 
 
 /* register handler */
-esp_err_t osh_node_proto_register_request(const char* uri,
-                                        coap_request_t method,
-                                          coap_route_cb handler) {
+esp_err_t osh_node_route_register(const char* uri,
+                                  coap_request_t method,
+                                  coap_route_cb handler) {
     esp_err_t res = ESP_FAIL;
 
     osh_node_proto_entry_t *entry = NULL;

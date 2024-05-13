@@ -43,9 +43,9 @@ esp_err_t osh_node_proto_start(void);
 esp_err_t osh_node_proto_stop(void);
 
 /* register route callback */
-esp_err_t osh_node_proto_register_route(const char* uri,
-                                        coap_request_t method,
-                                        coap_route_cb handler);
+esp_err_t osh_node_route_register(const char* uri,
+                                  coap_request_t method,
+                                  coap_route_cb handler);
 
 #ifdef __cplusplus
 }
