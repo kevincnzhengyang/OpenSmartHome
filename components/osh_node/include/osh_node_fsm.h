@@ -17,6 +17,7 @@ extern "C" {
 #include "osh_node_comm.h"
 #include "osh_node_events.h"
 #include "osh_node_errors.h"
+#include "osh_node.h"
 
 /* errors */
 #define OSH_ERR_FSM_NOT_INIT            (OSH_ERR_FSM_BASE +     1)
@@ -42,7 +43,7 @@ typedef enum {
 typedef esp_err_t (* osh_node_fsm_event_cb)(void *e_conf_arg, void *run_arg);
 
 /* init FSM */
-esp_err_t osh_node_fsm_init(void *f_conf_arg);
+esp_err_t osh_node_fsm_init(osh_node_bb_t *node_bb, void *f_conf_arg);
 
 /* register a event and corresponding callback to a state */
 esp_err_t osh_node_fsm_register_event(const OSH_FSM_STATES_ENUM state, const EventBits_t uxBitsToWaitFor,

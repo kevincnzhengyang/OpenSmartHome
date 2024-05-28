@@ -22,22 +22,24 @@ extern "C" {
 #include "osh_node_events.h"
 #include "osh_node_errors.h"
 
+#include "osh_node.h"
+
 #include "coap3/coap.h"
 
-#define OSH_ERR_PROTO_BASE              (OSH_ERR_APP_BASE + 0x10000)
+#define OSH_ERR_PROTO_BASE              (OSH_ERR_NODE_BASE + 0x10000)
 #define OSH_ERR_PROTO_INNER             (OSH_ERR_PROTO_BASE +     1)
 
 /* callback */
 typedef coap_method_handler_t coap_route_cb;
 
 /* init proto */
-esp_err_t osh_node_proto_init(size_t buff_size, void *conf_arg);
+esp_err_t osh_node_proto_init(osh_node_bb_t *node_bb, void *conf_arg);
 
 /* fini proto */
 esp_err_t osh_node_proto_fini(void);
 
 /* start proto */
-esp_err_t osh_node_proto_start(void);
+esp_err_t osh_node_proto_start(void *run_arg);
 
 /* stop proto */
 esp_err_t osh_node_proto_stop(void);

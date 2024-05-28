@@ -23,8 +23,8 @@ extern "C" {
 // error base
 #define OSH_ERR_NET_BASE            0x100000    /*!< Starting number of network error codes */
 #define OSH_ERR_FSM_BASE            0x200000    /*!< Starting number of FSM error codes */
-#define OSH_ERR_APP_BASE            0x300000    /*!< Starting number of application error codes */
-#define OSH_ERR_OPER_BASE           0x400000    /*!< Starting number of operation error codes */
+#define OSH_ERR_NODE_BASE           0x300000    /*!< Starting number of node error codes */
+#define OSH_ERR_APP_BASE            0x400000    /*!< Starting number of application error codes */
 
 
 #ifdef __cplusplus

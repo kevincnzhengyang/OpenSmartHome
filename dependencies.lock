@@ -5,6 +5,12 @@ dependencies:
       service_url: https://api.components.espressif.com/
       type: service
     version: 3.2.0
+  espressif/cbor:
+    component_hash: 440f4ee4504841cc9b4f3a8ef755776a612ac9dace355514c68b999868f990ff
+    source:
+      service_url: https://api.components.espressif.com/
+      type: service
+    version: 0.6.0~1
   espressif/cmake_utilities:
     component_hash: 351350613ceafba240b761b4ea991e0f231ac7a9f59a9ee901f751bddc0bb18f
     source:
@@ -12,11 +18,11 @@ dependencies:
       type: service
     version: 0.5.3
   espressif/coap:
-    component_hash: 601eb4321be86e367d576f6a68040772423e27da198f794dd94d27920b58c8c7
+    component_hash: b76d3b92424c55629509e60066d0d87cdd10f8f6272f1314f81ffd443de601b6
     source:
       service_url: https://api.components.espressif.com/
       type: service
-    version: 4.3.4~2
+    version: 4.3.4~3
   espressif/qrcode:
     component_hash: 3b493771bc5d6ad30cbf87c25bf784aada8a08c941504355b55d6b75518ed7bc
     source:
@@ -28,6 +34,6 @@ dependencies:
     source:
       type: idf
     version: 5.2.1
-manifest_hash: ed2e0260ed7953b3574f4d478b30178f0b7b9e158c84aff1cb700c29fa120eba
+manifest_hash: 3b5aefdc3b5432c6bb27f312f872388c17232a9beedbba32ec80bf5a4207defb
 target: esp32
 version: 1.0.0

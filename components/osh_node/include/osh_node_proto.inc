@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-05-09 10:28:18
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-11 21:30:50
+ * @LastEditTime: 2024-05-28 22:26:40
  * @FilePath    : /OpenSmartHome/components/osh_node/include/osh_node_proto.inc
  * @Description :
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -20,21 +20,23 @@ extern "C" {
 
 #include "osh_node_proto.h"
 
-/* state item of FSM */
+/* route method */
 typedef struct {
     coap_request_t                 method;
     coap_route_cb                route_cb;
     ListItem_t                 route_item;
 } osh_node_proto_route_t;
 
+/* uri route */
 typedef struct {
     char                             *uri;
     List_t                     route_list;
     ListItem_t                 entry_item;
 } osh_node_proto_entry_t;
 
-/* event item of state */
+/* coap proto */
 typedef struct {
+    osh_node_bb_t                *node_bb;
     List_t                     entry_list;
     TaskHandle_t                coap_task;
     size_t                      buff_size;

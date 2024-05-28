@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-05-08 19:20:33
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-13 22:17:35
+ * @LastEditTime: 2024-05-28 22:35:24
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_proto.c
  * @Description :
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -260,18 +260,19 @@ clean_up:
 */
 
 /* init proto */
-esp_err_t osh_node_proto_init(size_t buff_size, void * conf_arg) {
+esp_err_t osh_node_proto_init(osh_node_bb_t *node_bb, void * conf_arg) {
     memset(&g_proto, 0, sizeof(osh_node_proto_t));
-    g_proto.buff = malloc(buff_size);
+    g_proto.node_bb = node_bb;
+    g_proto.buff = malloc(CONFIG_NODE_COAP_BUFF_SIZE);
     if (NULL == g_proto.buff) {
         ESP_LOGE(PROTO_TAG, "failedto malloc mem for proto");
         return ESP_ERR_NO_MEM;
     }
-    memset(g_proto.buff, 0, buff_size);
+    memset(g_proto.buff, 0, CONFIG_NODE_COAP_BUFF_SIZE);
 
     // init entry list
     vListInitialise(&g_proto.entry_list);
-    g_proto.buff_size = buff_size;
+    g_proto.buff_size = CONFIG_NODE_COAP_BUFF_SIZE;
 
     return ESP_OK;
 }
@@ -287,7 +288,7 @@ esp_err_t osh_node_proto_fini(void) {
 }
 
 /* start proto */
-esp_err_t osh_node_proto_start(void) {
+esp_err_t osh_node_proto_start(void *run_arg) {
     if (NULL == g_proto.coap_task) {
         // create coap task if not existed
         xTaskCreate(coap_server, "coap", 8*1024, &g_proto, 5, &g_proto.coap_task);

@@ -16,16 +16,17 @@ extern "C" {
 #endif
 
 #include "osh_node_comm.h"
+#include "osh_node.h"
 
 
 /* init RGB LED for status indicator */
-esp_err_t osh_node_status_init(void);
+esp_err_t osh_node_status_init(osh_node_bb_t *node_bb, void *conf_arg);
 
 /* start status task */
-esp_err_t osh_node_status_start(void);
+esp_err_t osh_node_status_start(void *run_arg);
 
 /* init GPIO button for reset network config */
-esp_err_t osh_node_reset_btn_init(void);
+esp_err_t osh_node_reset_btn_init(osh_node_bb_t *node_bb, void *conf_arg);
 
 #ifdef __cplusplus
 }

@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-04-30 22:36:41
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-13 22:51:25
+ * @LastEditTime: 2024-05-28 23:05:04
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_wifi.c
  * @Description : WiFi network
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -41,7 +41,7 @@ const char *WIFI_TAG = "WiFi";
 /* network */
 typedef struct
 {
-    char      node_name[NODE_NAME_LEN];
+    osh_node_bb_t             *node_bb;
     uint8_t              timeout_count;
     TimerHandle_t           ping_timer;
     ip_addr_t               gateway_ip;
@@ -367,7 +367,7 @@ static esp_err_t osh_node_wifi_init_poweron(void *config, void *arg) {
         /* Start provisioning service */
         ESP_ERROR_CHECK(wifi_prov_mgr_start_provisioning(
                             security, (const void *) sec_params,
-                            g_node_wifi.node_name, service_key));
+                            g_node_wifi.node_bb->dev_name, service_key));
 
         /* Uncomment the following to wait for the provisioning to finish and then release
          * the resources of the manager. Since in this case de-initialization is triggered
@@ -375,7 +375,7 @@ static esp_err_t osh_node_wifi_init_poweron(void *config, void *arg) {
         // wifi_prov_mgr_wait();
         // wifi_prov_mgr_deinit();
         /* Print QR code for provisioning */
-        wifi_prov_print_qr(g_node_wifi.node_name, username, pop, PROV_TRANSPORT_SOFTAP);
+        wifi_prov_print_qr(g_node_wifi.node_bb->node_name, username, pop, PROV_TRANSPORT_SOFTAP);
     } else {
         ESP_LOGI(WIFI_TAG, "Already provisioned, starting Wi-Fi STA");
 
@@ -396,7 +396,7 @@ static esp_err_t osh_node_wifi_init_poweron(void *config, void *arg) {
 */
 static esp_err_t osh_node_wifi_init_connect(void *config, void *arg) {
     // start coap proto
-    osh_node_proto_start();
+    osh_node_proto_start(arg);
 
     // change state to OSH_FSM_STATE_IDLE
     osh_node_fsm_set_state(OSH_FSM_STATE_IDLE);
@@ -426,13 +426,32 @@ static esp_err_t osh_node_wifi_on_disconnect(void *config, void *arg) {
 }
 
 /** -------------------------------
+ *            task
+ *  -------------------------------
+*/
+static void wifi_task(void * arg) {
+    osh_node_fsm_set_state(OSH_FSM_STATE_INIT);
+    osh_node_fsm_invoke_event(OSH_NODE_EVENT_POWERON);
+    while(1) {
+        // move on the FSM
+        if (ESP_OK != osh_node_fsm_loop_step(arg)) break;
+    }
+    // fsm failed, restart
+    esp_restart();
+
+    vTaskDelete(NULL);
+}
+
+
+/** -------------------------------
  *            functions
  *  -------------------------------
 */
 
 /* init WiFi */
-esp_err_t osh_node_wifi_init(size_t proto_buff_size, void *conf_arg) {
+esp_err_t osh_node_wifi_init(osh_node_bb_t *node_bb, void *conf_arg) {
     memset(&g_node_wifi, 0, sizeof(osh_node_network));
+    g_node_wifi.node_bb = node_bb;
 
     /* Initialize TCP/IP */
     ESP_ERROR_CHECK(esp_netif_init());
@@ -442,11 +461,15 @@ esp_err_t osh_node_wifi_init(size_t proto_buff_size, void *conf_arg) {
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
-    /* set Node name */
-    uint8_t eth_mac[6];
-    esp_wifi_get_mac(WIFI_IF_STA, eth_mac);
-    snprintf(g_node_wifi.node_name, NODE_NAME_LEN, "OSH_%02X%02X%02X",
-             eth_mac[3], eth_mac[4], eth_mac[5]);
+    if (NULL == g_node_wifi.node_bb->dev_name) {
+        /* set node device name */
+        char node_name[NODE_NAME_LEN];
+        uint8_t eth_mac[6];
+        esp_wifi_get_mac(WIFI_IF_STA, eth_mac);
+        snprintf(node_name, NODE_NAME_LEN, "OSH_%02X%02X%02X",
+                eth_mac[3], eth_mac[4], eth_mac[5]);
+        ESP_ERROR_CHECK(osh_node_dev_name_update(node_name));
+    }
 
     g_node_wifi.conf_arg = conf_arg;
 
@@ -471,18 +494,17 @@ esp_err_t osh_node_wifi_init(size_t proto_buff_size, void *conf_arg) {
                         osh_node_wifi_on_disconnect, NULL));
 
     /* Init FSM */
-    ESP_ERROR_CHECK(osh_node_fsm_init(conf_arg));
+    ESP_ERROR_CHECK(osh_node_fsm_init(node_bb, conf_arg));
 
     /* Init Proto */
-    ESP_ERROR_CHECK(osh_node_proto_init(proto_buff_size, conf_arg));
+    ESP_ERROR_CHECK(osh_node_proto_init(node_bb, conf_arg));
 
     return ESP_OK;
 }
 
 /* start WiFi */
 esp_err_t osh_node_wifi_start(void *run_arg) {
-    osh_node_fsm_set_state(OSH_FSM_STATE_INIT);
-    osh_node_fsm_invoke_event(OSH_NODE_EVENT_POWERON);
+    xTaskCreate(wifi_task, "wifi", 512, run_arg, 2, NULL);
     return ESP_OK;
 }
 
@@ -490,9 +512,4 @@ esp_err_t osh_node_wifi_start(void *run_arg) {
 esp_err_t osh_node_wifi_reset(void) {
     esp_wifi_restore();
     return ESP_OK;
-}
-
-/* get node dev name */
-const char *osh_node_wifi_get_dev_name(void) {
-    return (const char *)g_node_wifi.node_name;
 }

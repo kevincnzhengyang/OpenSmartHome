@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-04-30 13:05:39
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-09 21:01:29
+ * @LastEditTime: 2024-05-28 22:21:53
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_fsm.c
  * @Description : FSM
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -158,7 +158,7 @@ esp_err_t osh_fsm_create_event(osh_node_fsm_state_t *fsm_state, EventBits_t bits
 }
 
 /* init FSM */
-esp_err_t osh_node_fsm_init(void *f_conf_arg)
+esp_err_t osh_node_fsm_init(osh_node_bb_t *node_bb, void *f_conf_arg)
 {
     if (ESP_OK != osh_fsm_verify()) return OSH_ERR_FSM_INNER;
 
@@ -170,6 +170,8 @@ esp_err_t osh_node_fsm_init(void *f_conf_arg)
 
     // init state list
     vListInitialise(&g_osh_fsm->states_list);
+
+    g_osh_fsm->node_bb = node_bb;
     g_osh_fsm->conf_arg = f_conf_arg;
 
     // callback

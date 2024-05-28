@@ -24,13 +24,11 @@ extern "C" {
 #include "osh_node_wifi.h"
 
 /* config node network with WiFi */
-#define osh_node_network_init(proto_buff_size, conf_arg) osh_node_wifi_init(proto_buff_size, conf_arg)
+#define osh_node_network_init(node_bb, conf_arg) osh_node_wifi_init(node_bb, conf_arg)
 
 #define osh_node_network_start(run_arg) osh_node_wifi_start(run_arg)
 
 #define osh_node_network_reset() osh_node_wifi_reset()
-
-#define osh_node_network_get_dev_name() osh_node_wifi_get_dev_name()
 
 #elif CONFIG_NODE_NETWORK_TRANSPORT_BLE
 #include "osh_node_ble.h"

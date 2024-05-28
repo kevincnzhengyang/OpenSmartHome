@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-04-29 23:47:47
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-13 23:04:12
+ * @LastEditTime: 2024-05-28 22:37:47
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_status.c
  * @Description :
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -38,7 +38,7 @@ static TickType_t last_time;
 static OSH_FSM_STATES_ENUM last_state = OSH_FSM_STATE_BUTT;
 
 /* init RGB LED for status indicator */
-esp_err_t osh_node_status_init(void) {
+esp_err_t osh_node_status_init(osh_node_bb_t *node_bb, void *conf_arg) {
     gpio_config_t io_config = {
         .intr_type      = GPIO_INTR_DISABLE,
         .mode           = GPIO_MODE_OUTPUT,
@@ -93,7 +93,7 @@ static void status_task(void * arg) {
 }
 
 /* start status  task*/
-esp_err_t osh_node_status_start(void) {
+esp_err_t osh_node_status_start(void *run_arg) {
     xTaskCreate(status_task, "status", 512, NULL, 2, NULL);
     return ESP_OK;
 }
@@ -112,7 +112,7 @@ static void button_press_restart(void *arg, void *data)
 }
 
 /* init GPIO button for reset network config */
-esp_err_t osh_node_reset_btn_init(void) {
+esp_err_t osh_node_reset_btn_init(osh_node_bb_t *node_bb, void *conf_arg) {
     button_config_t btn_cfg = {
         .type = BUTTON_TYPE_GPIO,
         .long_press_time = CONFIG_BUTTON_LONG_PRESS_TIME_MS,

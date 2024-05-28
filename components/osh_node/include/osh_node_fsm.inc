@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-04-30 11:35:44
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-09 20:59:30
+ * @LastEditTime: 2024-05-28 22:21:22
  * @FilePath    : /OpenSmartHome/components/osh_node/include/osh_node_fsm.inc
  * @Description :  node FSM private header file
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -45,6 +45,7 @@ typedef struct {
 
 /* FSM*/
 typedef struct {
+    osh_node_bb_t                *node_bb;
     OSH_FSM_STATES_ENUM     current_state;
     List_t                    states_list;
     EventGroupHandle_t        event_group;

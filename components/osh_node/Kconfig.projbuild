@@ -78,6 +78,9 @@ menu "COAP Server"
             IPV4 multicast address to receive multicast traffic on.
 
             The default CoAP IPV4 address is 224.0.1.187.
+    config NODE_COAP_BUFF_SIZE
+        int "buffer size of COAP protocol"
+        default 512
 endmenu
 
 config NODE_WIFI_PROV_RETRIES
