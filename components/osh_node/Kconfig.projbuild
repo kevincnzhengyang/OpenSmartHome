@@ -40,6 +40,16 @@ config NODE_NETWORK_TRANSPORT
     default 1 if NODE_NETWORK_TRANSPORT_WIFI
     default 2 if NODE_NETWORK_TRANSPORT_BLE
 
+config NODE_WIFI_PROV_RETRIES
+    int "retry number for WiFi Provisioning"
+    default 10
+    depends on NODE_NETWORK_TRANSPORT_WIFI
+
+config NODE_WIFI_CHECK_PERIOD
+    int "period in seconds to check the network"
+    default 1800
+    depends on NODE_NETWORK_TRANSPORT_WIFI
+
 menu "COAP Server"
     choice NODE_COAP_SECURE_MODE
         prompt "Secure mode of coap"
@@ -82,15 +92,6 @@ menu "COAP Server"
         int "buffer size of COAP protocol"
         default 512
 endmenu
-
-config NODE_WIFI_PROV_RETRIES
-    int "retry number for WiFi Provisioning"
-    default 10
-    depends on NODE_NETWORK_TRANSPORT_WIFI
-config NODE_WIFI_CHECK_PERIOD
-    int "period in seconds to check the network"
-    default 1800
-    depends on NODE_NETWORK_TRANSPORT_WIFI
 
 menu "Status RGB LED"
     config STATUS_R_LED_GPIO_NUM
