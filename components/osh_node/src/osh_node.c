@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-04-30 00:10:52
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-28 23:14:17
+ * @LastEditTime: 2024-05-31 21:53:18
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node.c
  * @Description :
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -51,7 +51,7 @@ static esp_err_t read_string_from_nvs(const char* key, char **pvalue) {
     nvs_handle_t nvs_handle;
     char *value = NULL;
 
-    esp_err_t err = nvs_open("osh_node_bb", NVS_READONLY, &nvs_handle);
+    esp_err_t err = nvs_open("osh_node_bb", NVS_READWRITE, &nvs_handle);
     if (err != ESP_OK) {
         ESP_LOGE(NODE_TAG, "Error (%s) opening NVS handle!", esp_err_to_name(err));
         return OSH_ERR_NODE_NVS_BASE + err;
@@ -106,7 +106,6 @@ failed:
 */
 esp_err_t osh_node_init(void) {
     memset(&g_node, 0, sizeof(osh_node_t));
-    vListInitialise(&g_node.module_list);
 
     /* Initialize NVS partition */
     esp_err_t ret = nvs_flash_init();
@@ -131,61 +130,41 @@ esp_err_t osh_node_init(void) {
     return ESP_OK;
 }
 
-
 /**
- * start running of OSH Node
+ * init modules
 */
-esp_err_t osh_node_start(void) {
-    /* init modules one by one */
-    // TODO
+esp_err_t osh_node_modules_init(osh_node_module_t *pmods, size_t num) {
+    if (0 == num) return ESP_OK;
 
-    /* Init Status LED */
-    // ESP_ERROR_CHECK(osh_node_status_init());
+    g_node.modules = pmods;
+    g_node.mod_num = num;
 
-    /* Init Reset BUtton */
-    // ESP_ERROR_CHECK(osh_node_reset_btn_init());
-
-    /* Init Network */
-    // ESP_ERROR_CHECK(osh_node_wifi_init(proto_buff_size, conf_arg));
-
-
-    // start status
-    // ESP_ERROR_CHECK(osh_node_status_start());
-
-    // start WiFi
-    // ESP_ERROR_CHECK(osh_node_network_start(run_arg));
-
-    /* start modules one by one */
-    // TODO
-
-    // move to wifi start
-
+    /* init modules */
+    for (int i = 0; i < num; i++) {
+        osh_node_module_t *mod = &g_node.modules[i];
+        if (NULL != mod && NULL != mod->init_module) {
+            ESP_LOGI(NODE_TAG, "init module %s ...", mod->name);
+            ESP_ERROR_CHECK(mod->init_module(&g_node.node_bb, mod->conf_arg));
+        }
+    }
     return ESP_OK;
 }
 
 /**
- * register module
+ * start running of OSH Node
 */
-esp_err_t osh_node_module_register(const char *name,
-                    module_init_cb init_module, void *conf_arg,
-                    module_start_cb start_module, void *run_arg) {
-    osh_node_module_t *mod = (osh_node_module_t *)malloc(sizeof(osh_node_module_t));
-    if (NULL == mod) {
-        ESP_LOGE(NODE_TAG, "failed to malloc mem for module %s", name);
-        return ESP_ERR_NO_MEM;
+esp_err_t osh_node_modules_start(void) {
+    /* init modules one by one */
+    if (0 == g_node.mod_num)  return ESP_OK;
+
+    /* start modules */
+    for (int i = 0; i < g_node.mod_num; i++) {
+        osh_node_module_t *mod = &g_node.modules[i];
+        if (NULL != mod && NULL != mod->start_module) {
+            ESP_LOGI(NODE_TAG, "start module %s ...", mod->name);
+            ESP_ERROR_CHECK(mod->start_module(mod->run_arg));
+        }
     }
-
-    mod->name = strdup(name);
-    mod->init_cb = init_module;
-    mod->conf_arg = conf_arg;
-    mod->start_cb = start_module;
-    mod->run_arg = run_arg;
-    vListInitialiseItem(&mod->mod_item);
-
-    // add modeule to list
-    listSET_LIST_ITEM_OWNER(&mod->mod_item, mod);
-    vListInsert(&g_node.module_list, &mod->mod_item);
-    ESP_LOGI(NODE_TAG, "register module %s", name);
     return ESP_OK;
 }
 

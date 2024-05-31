@@ -11,44 +11,13 @@ menuconfig NODE_ENABLE_RESET
             default 22 if IDF_TARGET_ESP32
     endif
 
-choice NODE_NETWORK_TRANSPORT
-    bool "Node Network Transport"
-    default NODE_NETWORK_TRANSPORT_WIFI if IDF_TARGET_ESP32S2
-    default NODE_NETWORK_TRANSPORT_BLE
-    help
-        Node network can use WiFi or BLE transport.
-
-    config NODE_NETWORK_TRANSPORT_WIFI
-        bool "WiFi"
-        select LWIP_IPV4
-    config NODE_NETWORK_TRANSPORT_BLE
-        bool "BLE"
-        select BT_ENABLED
-endchoice
-
-menuconfig NODE_USING_BLUEDROID
-    bool "Using BlueDroid"
-    depends on (NODE_NETWORK_TRANSPORT_BLE && (IDF_TARGET_ESP32C3 || IDF_TARGET_ESP32S3))
-    select BT_BLUEDROID_ENABLED
-    select BT_BLE_42_FEATURES_SUPPORTED
-    default n
-    help
-        This enables BLE 4.2 features for Bluedroid.
-
-config NODE_NETWORK_TRANSPORT
-    int
-    default 1 if NODE_NETWORK_TRANSPORT_WIFI
-    default 2 if NODE_NETWORK_TRANSPORT_BLE
-
 config NODE_WIFI_PROV_RETRIES
     int "retry number for WiFi Provisioning"
     default 10
-    depends on NODE_NETWORK_TRANSPORT_WIFI
 
 config NODE_WIFI_CHECK_PERIOD
     int "period in seconds to check the network"
     default 1800
-    depends on NODE_NETWORK_TRANSPORT_WIFI
 
 menu "COAP Server"
     choice NODE_COAP_SECURE_MODE
@@ -73,7 +42,6 @@ menu "COAP Server"
             The Preshared Key to use to encrypt the communicatons. The same key must be
             used at both ends of the CoAP connection, and the CoaP client must request
             an URI prefixed with coaps:// instead of coap:// for DTLS to be used.
-    depends on NODE_NETWORK_TRANSPORT_WIFI
     config NODE_COAP_PORT
         string "COAP listen port when using WiFi"
         default "5683"
@@ -96,19 +64,19 @@ endmenu
 menu "Status RGB LED"
     config STATUS_R_LED_GPIO_NUM
         int "GPIO number for status RED LED"
-        range 0 39
+        range 0 33
         default 3 if IDF_TARGET_ESP32C3
-        default 32 if IDF_TARGET_ESP32
+        default 12 if IDF_TARGET_ESP32
     config STATUS_G_LED_GPIO_NUM
         int "GPIO number for status GREEN LED"
-        range 0 39
+        range 0 33
         default 5 if IDF_TARGET_ESP32C3
-        default 33 if IDF_TARGET_ESP32
+        default 13 if IDF_TARGET_ESP32
     config STATUS_B_LED_GPIO_NUM
         int "GPIO number for status BLUE LED"
-        range 0 39
+        range 0 33
         default 6 if IDF_TARGET_ESP32C3
-        default 34 if IDF_TARGET_ESP32
+        default 14 if IDF_TARGET_ESP32
 endmenu
 
 endmenu

@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-04-30 22:36:41
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-28 23:05:04
+ * @LastEditTime: 2024-05-31 23:04:50
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_wifi.c
  * @Description : WiFi network
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -27,7 +27,6 @@
 #include "mbedtls/md.h"
 #include "mbedtls/error.h"
 
-#include "osh_node_network.h"
 #include "osh_node_wifi.h"
 #include "osh_node_events.h"
 #include "osh_node_fsm.h"
@@ -437,7 +436,7 @@ static void wifi_task(void * arg) {
         if (ESP_OK != osh_node_fsm_loop_step(arg)) break;
     }
     // fsm failed, restart
-    esp_restart();
+    // esp_restart();
 
     vTaskDelete(NULL);
 }
@@ -452,6 +451,23 @@ static void wifi_task(void * arg) {
 esp_err_t osh_node_wifi_init(osh_node_bb_t *node_bb, void *conf_arg) {
     memset(&g_node_wifi, 0, sizeof(osh_node_network));
     g_node_wifi.node_bb = node_bb;
+
+    /* Init FSM */
+    ESP_ERROR_CHECK(osh_node_fsm_init(node_bb, conf_arg));
+
+    /* register event callback to FSM */
+    ESP_ERROR_CHECK(osh_node_fsm_register_event(
+                        OSH_FSM_STATE_INIT, OSH_NODE_EVENT_POWERON,
+                        osh_node_wifi_init_poweron, NULL));
+    ESP_ERROR_CHECK(osh_node_fsm_register_event(
+                        OSH_FSM_STATE_INIT, OSH_NODE_EVENT_CONNECT,
+                        osh_node_wifi_init_connect, NULL));
+    ESP_ERROR_CHECK(osh_node_fsm_register_event(
+                        OSH_FSM_STATE_IDLE, OSH_NODE_EVENT_DISCONNECT,
+                        osh_node_wifi_on_disconnect, NULL));
+
+    /* Init Proto */
+    ESP_ERROR_CHECK(osh_node_proto_init(node_bb, conf_arg));
 
     /* Initialize TCP/IP */
     ESP_ERROR_CHECK(esp_netif_init());
@@ -482,29 +498,12 @@ esp_err_t osh_node_wifi_init(osh_node_bb_t *node_bb, void *conf_arg) {
         return OSH_ERR_NET_INNER;
     }
 
-    /* register event callback to FSM */
-    ESP_ERROR_CHECK(osh_node_fsm_register_event(
-                        OSH_FSM_STATE_INIT, OSH_NODE_EVENT_POWERON,
-                        osh_node_wifi_init_poweron, NULL));
-    ESP_ERROR_CHECK(osh_node_fsm_register_event(
-                        OSH_FSM_STATE_INIT, OSH_NODE_EVENT_CONNECT,
-                        osh_node_wifi_init_connect, NULL));
-    ESP_ERROR_CHECK(osh_node_fsm_register_event(
-                        OSH_FSM_STATE_IDLE, OSH_NODE_EVENT_DISCONNECT,
-                        osh_node_wifi_on_disconnect, NULL));
-
-    /* Init FSM */
-    ESP_ERROR_CHECK(osh_node_fsm_init(node_bb, conf_arg));
-
-    /* Init Proto */
-    ESP_ERROR_CHECK(osh_node_proto_init(node_bb, conf_arg));
-
     return ESP_OK;
 }
 
 /* start WiFi */
 esp_err_t osh_node_wifi_start(void *run_arg) {
-    xTaskCreate(wifi_task, "wifi", 512, run_arg, 2, NULL);
+    xTaskCreate(wifi_task, "wifi", 1024, run_arg, 2, NULL);
     return ESP_OK;
 }
 

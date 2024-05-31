@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-04-29 23:47:47
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-28 22:37:47
+ * @LastEditTime: 2024-05-31 20:05:54
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_status.c
  * @Description :
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -13,7 +13,7 @@
 
 #include "osh_node_status.h"
 #include "osh_node_fsm.h"
-#include "osh_node_network.h"
+#include "osh_node_wifi.h"
 
 static const uint32_t status_rgb[OSH_FSM_STATE_BUTT + 1] = {
     // OSH_FSM_STATE_INIT, yellow
@@ -101,7 +101,7 @@ esp_err_t osh_node_status_start(void *run_arg) {
 // callback for reset
 static void button_press_reset(void *arg, void *data)
 {
-    osh_node_network_reset();
+    osh_node_wifi_reset();
     esp_restart();
 }
 

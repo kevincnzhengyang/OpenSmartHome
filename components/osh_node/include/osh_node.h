@@ -51,6 +51,15 @@ typedef esp_err_t (*module_init_cb)(osh_node_bb_t *node_bb, void *conf_arg);
 /* callback for module start */
 typedef esp_err_t (*module_start_cb)(void *run_arg);
 
+/* structure for module */
+typedef struct {
+    char                          *name;
+    module_init_cb          init_module;
+    void                      *conf_arg;
+    module_start_cb        start_module;
+    void                       *run_arg;
+} osh_node_module_t;
+
 /**
  * init OSH Node
  *
@@ -60,16 +69,14 @@ typedef esp_err_t (*module_start_cb)(void *run_arg);
 esp_err_t osh_node_init(void);
 
 /**
- * start running of OSH Node
+ * init modules
 */
-esp_err_t osh_node_start(void);
+esp_err_t osh_node_modules_init(osh_node_module_t *pmods, size_t num);
 
 /**
- * register module
+ * start modules
 */
-esp_err_t osh_node_module_register(const char *name,
-                    module_init_cb init_module, void *conf_arg,
-                    module_start_cb start_module, void *run_arg);
+esp_err_t osh_node_modules_start(void);
 
 /**
  * update node name

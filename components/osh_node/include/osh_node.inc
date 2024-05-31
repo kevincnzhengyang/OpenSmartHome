@@ -21,24 +21,12 @@ extern "C" {
 
 #include <freertos/list.h>
 
-
-/* OSH module */
-typedef struct {
-    char                            *name;
-    module_init_cb                init_cb;
-    void                        *conf_arg;
-    module_start_cb              start_cb;
-    void                         *run_arg;
-    ListItem_t                   mod_item;
-} osh_node_module_t;
-
-
 /* OSH node */
 typedef struct osh_node_stru {
     osh_node_bb_t                 node_bb;
-    List_t                    module_list;
+    osh_node_module_t            *modules;
+    size_t                        mod_num;
 } osh_node_t;
-
 
 #ifdef __cplusplus
 }

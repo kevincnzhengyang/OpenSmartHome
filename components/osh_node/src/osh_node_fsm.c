@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-04-30 13:05:39
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-28 22:21:53
+ * @LastEditTime: 2024-05-31 23:19:53
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_fsm.c
  * @Description : FSM
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -57,6 +57,7 @@ static esp_err_t osh_fsm_create_state(OSH_FSM_STATES_ENUM state,
     vListInsert(&g_osh_fsm->states_list, &tmp_state->state_item);
 
     ESP_LOGI(FSM_TAG, "create state %d", state);
+    *fsm_state = tmp_state;
     return ESP_OK;
 }
 
@@ -74,7 +75,7 @@ esp_err_t osh_fsm_fetch_state(OSH_FSM_STATES_ENUM state,
     osh_node_fsm_state_t *tmp_state = NULL;
     listFOR_EACH_ENTRY(&g_osh_fsm->states_list, osh_node_fsm_state_t, tmp_state) {
         if (state == tmp_state->state) {
-            ESP_LOGD(FSM_TAG, "find state %d", (int)state);
+            ESP_LOGI(FSM_TAG, "find state %d", (int)state);
             *fsm_state = tmp_state;
             break;
         }
@@ -99,6 +100,7 @@ esp_err_t osh_fsm_get_event(osh_node_fsm_state_t *fsm_state,
     // traverse to find the event
     if (listLIST_IS_EMPTY(&fsm_state->events_list)) {
         // empty list
+        ESP_LOGW(FSM_TAG, "state %d empty events", (int)fsm_state->state);
         return OSH_ERR_FSM_MISS_EVENT;
     }
 
@@ -111,7 +113,7 @@ esp_err_t osh_fsm_get_event(osh_node_fsm_state_t *fsm_state,
         }
     }
     if (NULL == tmp_event) {
-        ESP_LOGE(FSM_TAG, "can't find event %d at state %d",
+        ESP_LOGW(FSM_TAG, "can't find event %d at state %d",
                 (int)bits, (int)fsm_state->state);
         *fsm_event = NULL;
         return OSH_ERR_FSM_MISS_EVENT;
@@ -186,6 +188,7 @@ esp_err_t osh_node_fsm_init(osh_node_bb_t *node_bb, void *f_conf_arg)
 esp_err_t osh_node_fsm_register_event(const OSH_FSM_STATES_ENUM state, const EventBits_t uxBitsToWaitFor,
                             osh_node_fsm_event_cb handle, void *e_conf_arg)
 {
+    ESP_LOGI(FSM_TAG, "register event [%d]@[%d]", (int)uxBitsToWaitFor, (int)state);
     if (NULL == g_osh_fsm) {
         ESP_LOGE(FSM_TAG, "failed to step forward with NULL FSM");
         return OSH_ERR_FSM_NOT_INIT;
@@ -200,7 +203,7 @@ esp_err_t osh_node_fsm_register_event(const OSH_FSM_STATES_ENUM state, const Eve
     // find event before create a new one
     osh_node_fsm_event_t *fsm_event = NULL;
     if (ESP_OK == (res = osh_fsm_get_event(fsm_state, uxBitsToWaitFor, &fsm_event))
-        || NULL != fsm_event) {
+        && NULL != fsm_event) {
         ESP_LOGE(FSM_TAG, "failed to register event %d state %d",
                 (int)uxBitsToWaitFor, (int)state);
         return OSH_ERR_FSM_DUP_EVENT;

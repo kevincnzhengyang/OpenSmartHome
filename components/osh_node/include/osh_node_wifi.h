@@ -23,6 +23,10 @@ extern "C" {
 #include "osh_node_proto.h"
 #include "osh_node.h"
 
+
+#define OSH_ERR_NET_INNER               (OSH_ERR_NET_BASE +     1)
+#define OSH_ERR_NET_PROTO_BASE          (OSH_ERR_NET_BASE + 0x10000)
+
 /** -------------------------------
  *            functions
  *  -------------------------------
