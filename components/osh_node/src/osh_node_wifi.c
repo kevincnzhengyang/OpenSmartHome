@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-04-30 22:36:41
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-31 23:04:50
+ * @LastEditTime: 2024-06-01 21:18:04
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_wifi.c
  * @Description : WiFi network
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -290,7 +290,7 @@ static esp_err_t osh_node_wifi_init_poweron(void *config, void *arg) {
                         &event_handler, NULL));
 
     /* Initialize Wi-Fi including netif with default config */
-    esp_netif_create_default_wifi_sta();
+    // esp_netif_create_default_wifi_sta();
     esp_netif_create_default_wifi_ap();
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
@@ -429,6 +429,7 @@ static esp_err_t osh_node_wifi_on_disconnect(void *config, void *arg) {
  *  -------------------------------
 */
 static void wifi_task(void * arg) {
+    ESP_LOGI(WIFI_TAG, "WiFi starting...");
     osh_node_fsm_set_state(OSH_FSM_STATE_INIT);
     osh_node_fsm_invoke_event(OSH_NODE_EVENT_POWERON);
     while(1) {
@@ -498,12 +499,13 @@ esp_err_t osh_node_wifi_init(osh_node_bb_t *node_bb, void *conf_arg) {
         return OSH_ERR_NET_INNER;
     }
 
+    ESP_LOGI(WIFI_TAG, "WiFi init");
     return ESP_OK;
 }
 
 /* start WiFi */
 esp_err_t osh_node_wifi_start(void *run_arg) {
-    xTaskCreate(wifi_task, "wifi", 1024, run_arg, 2, NULL);
+    xTaskCreate(wifi_task, "wifi", 4096, run_arg, 2, NULL);
     return ESP_OK;
 }
 

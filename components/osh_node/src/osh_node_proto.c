@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-05-08 19:20:33
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-28 22:35:24
+ * @LastEditTime: 2024-06-01 19:34:23
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_proto.c
  * @Description :
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -273,7 +273,7 @@ esp_err_t osh_node_proto_init(osh_node_bb_t *node_bb, void * conf_arg) {
     // init entry list
     vListInitialise(&g_proto.entry_list);
     g_proto.buff_size = CONFIG_NODE_COAP_BUFF_SIZE;
-
+    ESP_LOGI(PROTO_TAG, "coap proto init");
     return ESP_OK;
 }
 

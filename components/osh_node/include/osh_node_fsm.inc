@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-04-30 11:35:44
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-28 22:21:22
+ * @LastEditTime: 2024-06-01 19:56:57
  * @FilePath    : /OpenSmartHome/components/osh_node/include/osh_node_fsm.inc
  * @Description :  node FSM private header file
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -65,6 +65,10 @@ esp_err_t osh_fsm_verify(void);
 
 /* get or create if state not exists */
 esp_err_t osh_fsm_fetch_state(OSH_FSM_STATES_ENUM state,
+                osh_node_fsm_state_t **fsm_state);
+
+/* find state*/
+esp_err_t osh_fsm_find_state(OSH_FSM_STATES_ENUM state,
                 osh_node_fsm_state_t **fsm_state);
 
 /* get event */

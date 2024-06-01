@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-04-30 13:05:39
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-05-31 23:19:53
+ * @LastEditTime: 2024-06-01 21:21:19
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_fsm.c
  * @Description : FSM
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -51,6 +51,7 @@ static esp_err_t osh_fsm_create_state(OSH_FSM_STATES_ENUM state,
     vListInitialiseItem(&tmp_state->state_item);
     vListInitialise(&tmp_state->events_list);
     listSET_LIST_ITEM_OWNER(&tmp_state->state_item, tmp_state);
+    tmp_state->state = state;
 
     // insert to list
     tmp_state->state_item.xItemValue = (int)state;  // using state as value
@@ -72,20 +73,42 @@ esp_err_t osh_fsm_fetch_state(OSH_FSM_STATES_ENUM state,
         return osh_fsm_create_state(state, fsm_state);
     }
 
+    // ESP_LOGI(FSM_TAG, "searching state %d...", (int)state);
     osh_node_fsm_state_t *tmp_state = NULL;
     listFOR_EACH_ENTRY(&g_osh_fsm->states_list, osh_node_fsm_state_t, tmp_state) {
         if (state == tmp_state->state) {
             ESP_LOGI(FSM_TAG, "find state %d", (int)state);
             *fsm_state = tmp_state;
-            break;
+            return ESP_OK;
         }
     }
-    if (NULL == tmp_state) {
+
+    // ESP_LOGI(FSM_TAG, "searching state %d end", (int)state);
+    if (state != tmp_state->state) {
         ESP_LOGI(FSM_TAG, "can't find state %d", (int)state);
         return osh_fsm_create_state(state, fsm_state);
     }
 
     return ESP_OK;
+}
+
+/* find state */
+esp_err_t osh_fsm_find_state(OSH_FSM_STATES_ENUM state,
+                osh_node_fsm_state_t **fsm_state) {
+    if (NULL == g_osh_fsm) return OSH_ERR_FSM_NOT_INIT;
+
+    // ESP_LOGI(FSM_TAG, "searching state %d...", (int)state);
+    osh_node_fsm_state_t *tmp_state = NULL;
+    listFOR_EACH_ENTRY(&g_osh_fsm->states_list, osh_node_fsm_state_t, tmp_state) {
+        if (state == tmp_state->state) {
+            ESP_LOGI(FSM_TAG, "find state %d", (int)state);
+            *fsm_state = tmp_state;
+            return ESP_OK;
+        }
+    }
+
+    *fsm_state = NULL;
+    return OSH_ERR_FSM_UNKNOW_STATE;
 }
 
 /* get event */
@@ -109,17 +132,13 @@ esp_err_t osh_fsm_get_event(osh_node_fsm_state_t *fsm_state,
         if (bits == tmp_event->bits) {
             ESP_LOGD(FSM_TAG, "find event %d", (int)bits);
             *fsm_event = tmp_event;
-            break;
+            return ESP_OK;
         }
     }
-    if (NULL == tmp_event) {
-        ESP_LOGW(FSM_TAG, "can't find event %d at state %d",
-                (int)bits, (int)fsm_state->state);
-        *fsm_event = NULL;
-        return OSH_ERR_FSM_MISS_EVENT;
-    }
-
-    return ESP_OK;
+    ESP_LOGW(FSM_TAG, "can't find event %d at state %d",
+            (int)bits, (int)fsm_state->state);
+    *fsm_event = NULL;
+    return OSH_ERR_FSM_MISS_EVENT;
 }
 
 /* create event */
@@ -150,12 +169,17 @@ esp_err_t osh_fsm_create_event(osh_node_fsm_state_t *fsm_state, EventBits_t bits
     vListInitialiseItem(&tmp_event->event_item);
     listSET_LIST_ITEM_OWNER(&tmp_event->event_item, tmp_event);
     tmp_event->callback = callback;
+    tmp_event->bits = bits;
+
+    // register bits
+    fsm_state->group_bits |= bits;
 
     // insert to list
     tmp_event->event_item.xItemValue = (int)bits;  // using bits as value
     vListInsert(&fsm_state->events_list, &tmp_event->event_item);
+    *fsm_event = tmp_event;
 
-    ESP_LOGI(FSM_TAG, "create event %d for state %d", (int)bits, (int)fsm_state->state);
+    ESP_LOGI(FSM_TAG, "create event %d@%d", (int)bits, (int)fsm_state->state);
     return ESP_OK;
 }
 
@@ -188,7 +212,7 @@ esp_err_t osh_node_fsm_init(osh_node_bb_t *node_bb, void *f_conf_arg)
 esp_err_t osh_node_fsm_register_event(const OSH_FSM_STATES_ENUM state, const EventBits_t uxBitsToWaitFor,
                             osh_node_fsm_event_cb handle, void *e_conf_arg)
 {
-    ESP_LOGI(FSM_TAG, "register event [%d]@[%d]", (int)uxBitsToWaitFor, (int)state);
+    // ESP_LOGI(FSM_TAG, "register event [%d]@[%d] ...", (int)uxBitsToWaitFor, (int)state);
     if (NULL == g_osh_fsm) {
         ESP_LOGE(FSM_TAG, "failed to step forward with NULL FSM");
         return OSH_ERR_FSM_NOT_INIT;
@@ -211,6 +235,9 @@ esp_err_t osh_node_fsm_register_event(const OSH_FSM_STATES_ENUM state, const Eve
     if (ESP_OK != (res = osh_fsm_create_event(fsm_state, uxBitsToWaitFor, handle, &fsm_event))
         || NULL == fsm_event) return res;
     fsm_event->conf_arg = e_conf_arg;
+
+    ESP_LOGI(FSM_TAG, "register event [%d]@[%d]",
+                (int)uxBitsToWaitFor, (int)state);
     return ESP_OK;
 }
 
@@ -225,7 +252,7 @@ esp_err_t osh_node_fsm_loop_step(void *run_arg)
     // find current state
     esp_err_t res = ESP_FAIL;
     osh_node_fsm_state_t *fsm_state = NULL;
-    if (ESP_OK != (res = osh_fsm_fetch_state(g_osh_fsm->current_state, &fsm_state))
+    if (ESP_OK != (res = osh_fsm_find_state(g_osh_fsm->current_state, &fsm_state))
         || NULL == fsm_state) {
         ESP_LOGE(FSM_TAG, "unknow state %d", (int)g_osh_fsm->current_state);
 
@@ -243,6 +270,8 @@ esp_err_t osh_node_fsm_loop_step(void *run_arg)
     // dispatch
     EventBits_t bits = xEventGroupWaitBits(g_osh_fsm->event_group, fsm_state->group_bits,
                             pdTRUE, pdFALSE, portMAX_DELAY);
+    ESP_LOGI(FSM_TAG, "event happened @%d", fsm_state->state);
+
     // pre callback
     if (NULL != g_osh_fsm->pre_callback) {
         ESP_LOGI(FSM_TAG, "pre callback...");
@@ -253,15 +282,15 @@ esp_err_t osh_node_fsm_loop_step(void *run_arg)
     osh_node_fsm_event_t *fsm_event = NULL;
     listFOR_EACH_ENTRY(&fsm_state->events_list, osh_node_fsm_event_t, fsm_event) {
         if (0 != (bits & fsm_event->bits)) {
-            ESP_LOGI(FSM_TAG, "matched %d event %d",
-                    (int)fsm_state->state, (int)fsm_event->bits);
+            ESP_LOGI(FSM_TAG, "matched %d@%d",
+                    (int)fsm_event->bits, (int)fsm_state->state);
             if (NULL == fsm_event->callback) {
-                ESP_LOGE(FSM_TAG, "state %d invalid event %d",
-                    (int)fsm_state->state, (int)fsm_event->bits);
+                ESP_LOGE(FSM_TAG, "invalid cb for %d@%d",
+                    (int)fsm_event->bits, (int)fsm_state->state);
                 return OSH_ERR_FSM_INVALID_EVENT;
             }
-            ESP_LOGI(FSM_TAG, "state %d event %d callback...",
-                    (int)fsm_state->state, (int)fsm_event->bits);
+            ESP_LOGI(FSM_TAG, "%d@%d callback...",
+                    (int)fsm_event->bits, (int)fsm_state->state);
             if (ESP_OK != (res = fsm_event->callback(fsm_event->conf_arg, run_arg))) return res;
             // DO NOT break, tranverse all events
         }
