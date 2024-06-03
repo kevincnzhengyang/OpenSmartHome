@@ -19,46 +19,49 @@ config NODE_WIFI_CHECK_PERIOD
     int "period in seconds to check the network"
     default 1800
 
-menu "COAP Server"
-    choice NODE_COAP_SECURE_MODE
-        prompt "Secure mode of coap"
-        config NODE_COAP_SECURE_NONE
+menu "Proto Server"
+    choice NODE_PROTO_SECURE_MODE
+        prompt "Secure mode of protocol"
+        config NODE_PROTO_SECURE_NONE
             bool "None"
             default n
-        config NODE_COAP_MBEDTLS_PSK
-            bool "Pre-Shared Keys"
-            default n
-            select COAP_MBEDTLS_PSK
-        config NODE_COAP_MBEDTLS_PKI
+        config NODE_PROTO_MBEDTLS_PKI
             bool "PKI Certificates"
             default y
-            select COAP_MBEDTLS_PKI
     endchoice
-    config NODE_COAP_PSK_KEY
-        string "Preshared Key (PSK) to used in the connection from the CoAP client"
-        depends on NODE_COAP_MBEDTLS_PSK
-        default "secret-key"
+    config NODE_PROTO_PORT
+        string "UDP server listen port"
+        default "39098"
+    config NODE_PROTOS_PORT
+        string "UDP secure listen port"
+        default "39097"
+        depends on NODE_PROTO_MBEDTLS_PKI
+    config NODE_PROTO_BROADCAST_ADDR
+        string "Proto Broadcast IPV4 Address (send)"
+        default "255.255.255.255"
         help
-            The Preshared Key to use to encrypt the communicatons. The same key must be
-            used at both ends of the CoAP connection, and the CoaP client must request
-            an URI prefixed with coaps:// instead of coap:// for DTLS to be used.
-    config NODE_COAP_PORT
-        string "COAP listen port when using WiFi"
-        default "5683"
-    config NODE_COAPS_PORT
-        string "COAP secure listen port"
-        default "5684"
-        depends on NODE_COAP_MBEDTLS_PSK || NODE_COAP_MBEDTLS_PKI
-    config NODE_COAP_MULTICAST_ADDR
-        string "CoAP Multicast IPV4 Address (receive)"
-        default "224.0.1.187"
+            IPV4 broadcast address to send heartbeat.
+
+            The default broadcast IPV4 address is 255.255.255.255.
+    config NODE_PROTO_BROADCAST_PORT
+        string "Proto broadcast port (send)"
+        default "39099"
+    config NODE_PROTO_MULTICAST_ADDR
+        string "Proto Multicast IPV4 Address (receive)"
+        default "239.255.255.250"
         help
             IPV4 multicast address to receive multicast traffic on.
 
-            The default CoAP IPV4 address is 224.0.1.187.
-    config NODE_COAP_BUFF_SIZE
-        int "buffer size of COAP protocol"
+            The default CoAP IPV4 address is 239.255.255.250.
+    config NODE_PROTO_MULTICAST_PORT
+        string "Proto Multicast port (receive)"
+        default "39099"
+    config NODE_PROTO_BUFF_SIZE
+        int "buffer size of proto protocol"
         default 512
+    config NODE_PROTO_HB_PERIOD
+        int "period in second for heartbeat broadcast"
+        default 60
 endmenu
 
 menu "Status RGB LED"

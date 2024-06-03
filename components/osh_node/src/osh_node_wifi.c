@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-04-30 22:36:41
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-06-01 21:18:04
+ * @LastEditTime: 2024-06-03 22:18:12
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_wifi.c
  * @Description : WiFi network
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -40,11 +40,11 @@ const char *WIFI_TAG = "WiFi";
 /* network */
 typedef struct
 {
-    osh_node_bb_t             *node_bb;
-    uint8_t              timeout_count;
-    TimerHandle_t           ping_timer;
-    ip_addr_t               gateway_ip;
-    void                     *conf_arg;
+    osh_node_bb_t              *node_bb;
+    uint8_t               timeout_count;
+    TimerHandle_t            ping_timer;
+    ip_addr_t                gateway_ip;
+    void                      *conf_arg;
 } osh_node_network;
 
 

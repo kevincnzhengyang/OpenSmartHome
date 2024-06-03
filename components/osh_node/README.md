@@ -2,7 +2,7 @@
  * @Author: Zheng, Yang kevin.cn.zhengyang@gmail.com
  * @Date: 2024-04-29 23:10:16
  * @LastEditors: Zheng, Yang kevin.cn.zhengyang@gmail.com
- * @LastEditTime: 2024-05-08 23:18:41
+ * @LastEditTime: 2024-06-03 12:06:51
  * @FilePath: /OpenSmartHome/components/osh_node/README.md
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
@@ -24,11 +24,7 @@ a RGB led to indicate the working status
 
 # Transport
 
-Two transports can be used:
-- BLE: to be implemented
-- WiFi: IPV4 and UDP would be adopt when choosing WiFi
-
-choose any one of above in menuconfig before compiling this project
+Only WiFi transport can be used:
 
 # Wifi
 
@@ -36,7 +32,13 @@ node work as an UDP Server, which serves only one request from a client at one t
 
 # Proto
 
-[COAP](https://en.wikipedia.org/wiki/Constrained_Application_Protocol) used to transfer all data exchanged among nodes.
+## Broadcast
+
+node broadcast at UDP port 39099 with node name and device name in schedule. consider this as a heartbeat and service observation.
+
+## Format
+
+inspired by [COAP](https://en.wikipedia.org/wiki/Constrained_Application_Protocol), the data frame is used to transfer all data exchanged among nodes.
 
 Those data would be:
 
@@ -96,7 +98,7 @@ Those data would be:
             <td>0</td>
             <td colspan=2 style="text-align:center">version</td>
             <td colspan=2 style="text-align:center">type</td>
-            <td colspan=4 style="text-align:center">token length</td>
+            <td colspan=4 style="text-align:center">map</td>
             <td colspan=8 style="text-align:center">request/response code</td>
             <td colspan=16 style="text-align:center">message ID</td>
         </tr>
@@ -109,15 +111,21 @@ Those data would be:
         <tr>
             <td>8</td>
             <td>64</td>
-            <td rowspan=2 colspan=32 style="text-align:center">token (0~8 bytes)</td>
+            <td colspan=32 style="text-align:center">token (0 / 4 bytes)</td>
         </tr>
         <tr>
             <td>12</td>
             <td>96</td>
+            <td colspan=32 style="text-align:center">hash (0 / 4 bytes)</td>
         </tr>
         <tr>
             <td>16</td>
             <td>128</td>
+            <td colspan=32 style="text-align:center">entry (0 / 4 bytes)</td>
+        </tr>
+        <tr>
+            <td>20</td>
+            <td>160</td>
             <td colspan=32 style="text-align:center">content (if available)</td>
         </tr>
     </tbody>
