@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-06-02 20:03:54
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-06-03 22:21:00
+ * @LastEditTime: 2024-06-07 22:47:52
  * @FilePath    : /OpenSmartHome/components/osh_node/include/osh_node_proto.inc
  * @Description : private protocol
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -22,6 +22,18 @@ extern "C" {
 
 #include "osh_node_proto_dataframe.h"
 #include "osh_node_proto.h"
+
+// MDM Entry start with bit31&30 set to 1
+#define MDM_ENTRY_MASK        0xC0000000
+
+// APP Entry start with bit31 set to 0
+#define APP_ENTRY_MASK        0x10000000
+
+#define OSH_NODE_ENTRY_IS_MDM(e) \
+    (MDM_ENTRY_MASK == (((uint32_t)(e)) & MDM_ENTRY_MASK))
+
+#define OSH_NODE_ENTRY_IS_APP(e) \
+    (0 == (((uint32_t)(e)) & APP_ENTRY_MASK))
 
 /* route method */
 typedef struct {
@@ -53,6 +65,12 @@ typedef struct {
     TimerHandle_t              hb_timer;
     osh_node_proto_buff_t     recv_buff;
     osh_node_proto_buff_t     send_buff;
+    osh_node_proto_pdu_t        request;
+    osh_node_proto_pdu_t       response;
+    int                     report_sock;
+    int                        mdm_sock;
+    int                        app_sock;
+    struct sockaddr_in      report_addr;
     void                      *conf_arg;
 } osh_node_proto_t;
 

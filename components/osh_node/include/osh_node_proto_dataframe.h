@@ -43,14 +43,14 @@ typedef enum {
 } OSH_CODE_CLASS_ENUM;
 
 typedef enum {
-    OSH_METHOC_EMPTY               =  0,
-    OSH_METHOC_GET                 =  1,
-    OSH_METHOC_POST                =  2,
-    OSH_METHOC_PUT                 =  3,
-    OSH_METHOC_DELETE              =  4,
-    OSH_METHOC_FETCH               =  5,
-    OSH_METHOC_PATCH               =  6,
-    OSH_METHOC_IPATCH              =  7,
+    OSH_METHOD_EMPTY               =  0,
+    OSH_METHOD_GET                 =  1,
+    OSH_METHOD_POST                =  2,
+    OSH_METHOD_PUT                 =  3,
+    OSH_METHOD_DELETE              =  4,
+    OSH_METHOD_FETCH               =  5,
+    OSH_METHOD_PATCH               =  6,
+    OSH_METHOD_IPATCH              =  7,
     OSH_METHOD_CONNECT             =  8, /* HTTP1.1 pip proxy */
     OSH_METHOD_OPTIONS             =  9, /* HTTP1.1 query server */
     OSH_METHOD_TRACE               = 10, /* HTTP1.1 diagoise server */
@@ -129,14 +129,12 @@ typedef enum {
     OSH_SESSION_STATE_BUTT
 } OSH_SESSION_STATE_ENUM;
 
-typedef struct sockaddr_storage osh_node_proto_addr;
-
 /* session */
 typedef struct {
     OSH_SESSION_STATE_ENUM        state;
     uint32_t                        ref;    // reference counter
-    osh_node_proto_addr     remote_addr;
-    osh_node_proto_addr      local_addr;
+    struct sockaddr_in      remote_addr;
+    struct sockaddr_in       local_addr;
     int                            sock;    // socket
     uint32_t                ack_timeout;    // tick for ack timeout
     uint32_t                 last_token;
@@ -151,14 +149,15 @@ typedef struct {
     uint8_t                   token_ind;    // token indicator
     uint8_t                    hash_ind;    // hash indicator
     uint8_t                   entry_ind;    // hash indicator
-    uint8_t                        code;    // 3 bits class, 5 bits code
+    OSH_CODE_CLASS_ENUM      code_class;    // 3 bits class
+    uint8_t                   code_code;    // 5 bits code
     uint16_t                        mid;    // message ID
     OSH_CONTENT_TYPE_ENUM      con_type;    // content type
     uint32_t                    con_len;    // content length
     uint32_t                      token;
     uint32_t                       hash;
     uint32_t                      entry;
-    void                       *content;    // content for App
+    void                          *data;    // data for App
 
     osh_node_proto_session_t   *session;
 

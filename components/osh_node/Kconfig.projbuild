@@ -30,32 +30,28 @@ menu "Proto Server"
             default y
     endchoice
     config NODE_PROTO_PORT
-        string "UDP server listen port"
-        default "39098"
-    config NODE_PROTOS_PORT
-        string "UDP secure listen port"
-        default "39097"
-        depends on NODE_PROTO_MBEDTLS_PKI
-    config NODE_PROTO_BROADCAST_ADDR
-        string "Proto Broadcast IPV4 Address (send)"
-        default "255.255.255.255"
+        int "UDP server listen port"
+        default 39099
+    config NODE_PROTO_REPORT_ADDR
+        string "Proto Multicast IPV4 Address for Report (send)"
+        default "239.0.0.199"
         help
-            IPV4 broadcast address to send heartbeat.
+            IPV4 broadcast address to send report like heartbeat.
 
-            The default broadcast IPV4 address is 255.255.255.255.
-    config NODE_PROTO_BROADCAST_PORT
-        string "Proto broadcast port (send)"
-        default "39099"
-    config NODE_PROTO_MULTICAST_ADDR
-        string "Proto Multicast IPV4 Address (receive)"
-        default "239.255.255.250"
+            The default broadcast IPV4 address is 224.0.0.99.
+    config NODE_PROTO_REPORT_PORT
+        int "Proto Multicast port for Report (send)"
+        default 39099
+    config NODE_PROTO_MDM_ADDR
+        string "Proto Multicast IPV4 Address for MDM (receive)"
+        default "239.0.0.188"
         help
-            IPV4 multicast address to receive multicast traffic on.
+            IPV4 multicast address to receive MDM command.
 
-            The default CoAP IPV4 address is 239.255.255.250.
-    config NODE_PROTO_MULTICAST_PORT
-        string "Proto Multicast port (receive)"
-        default "39099"
+            The default CoAP IPV4 address is 224.0.0.188.
+    config NODE_PROTO_MDM_PORT
+        int "Proto Multicast port for MDM (receive)"
+        default 39098
     config NODE_PROTO_BUFF_SIZE
         int "buffer size of proto protocol"
         default 512

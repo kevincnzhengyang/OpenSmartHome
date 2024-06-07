@@ -25,6 +25,10 @@ extern "C" {
 #define OSH_ERR_PROTO_INNER             (OSH_ERR_PROTO_BASE +     1)
 #define OSH_ERR_PROTO_PDU_LEN           (OSH_ERR_PROTO_BASE +     2)
 #define OSH_ERR_PROTO_BUFF_LEN          (OSH_ERR_PROTO_BASE +     3)
+#define OSH_ERR_PROTO_SOCKET            (OSH_ERR_PROTO_BASE +     4)
+#define OSH_ERR_PROTO_PDU_FMT           (OSH_ERR_PROTO_BASE +     5)
+#define OSH_ERR_PROTO_INVALID_ENTRY     (OSH_ERR_PROTO_BASE +     6)
+#define OSH_ERR_PROTO_NOT_FOUND         (OSH_ERR_PROTO_BASE +     7)
 
 
 typedef esp_err_t (*osh_node_proto_handler_t) (uint32_t entry,

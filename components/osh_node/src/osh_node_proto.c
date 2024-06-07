@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-06-02 20:04:36
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-06-03 22:57:32
+ * @LastEditTime: 2024-06-07 23:12:08
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_proto.c
  * @Description :
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -10,12 +10,17 @@
 
 #include <string.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
 
 #include "esp_wifi.h"
 
 #include "osh_node_proto.h"
 #include "osh_node_proto.inc"
 #include "osh_node_proto_dataframe.h"
+
+#define OSH_NODE_PROTO_VER          0
 
 static const char *PROTO_TAG = "PROTO";
 
@@ -25,59 +30,6 @@ static osh_node_proto_t g_proto;
  *            proto
  *  -------------------------------
 */
-static uint16_t proto_address_get_port(const osh_node_proto_addr *addr) {
-    if (NULL == addr) return 0;
-    struct sockaddr_in *addr_in = (struct sockaddr_in *)addr;
-    struct sockaddr_in6 *addr_in6 = (struct sockaddr_in6 *)addr;
-    switch (addr->ss_family) {
-    case AF_INET:
-        return ntohs(addr_in->sin_port);
-    case AF_INET6:
-        return ntohs(addr_in6->sin6_port);
-    default: /* undefined */
-        return 0;
-    }
-    return 0;
-}
-
-static void proto_address_set_port(osh_node_proto_addr *addr, uint16_t port) {
-    if (NULL == addr) return;
-    struct sockaddr_in *addr_in = (struct sockaddr_in *)addr;
-    struct sockaddr_in6 *addr_in6 = (struct sockaddr_in6 *)addr;
-    switch (addr->ss_family) {
-    case AF_INET:
-        addr_in->sin_port = htons(port);
-        break;
-    case AF_INET6:
-        addr_in6->sin6_port = htons(port);
-        break;
-    default: /* undefined */
-        ;
-  }
-}
-
-static esp_err_t proto_address_equals(const osh_node_proto_addr *a, const osh_node_proto_addr *b) {
-    if (NULL == a || NULL == b) return ESP_FAIL;
-    if (a->s2_len != b->s2_len || a->ss_family != b->ss_family) return ESP_FAIL;
-
-    /* need to compare only relevant parts of sockaddr_in6 */
-    switch (a->ss_family) {
-    case AF_INET:
-        return ((struct sockaddr_in *)a)->sin_port == ((struct sockaddr_in *)b)->sin_port &&
-            0 == memcmp(&(((struct sockaddr_in *)a)->sin_addr),
-                    &(((struct sockaddr_in *)b)->sin_addr),
-                    sizeof(struct in_addr));
-    case AF_INET6:
-        return ((struct sockaddr_in6 *)a)->sin6_port == ((struct sockaddr_in6 *)b)->sin6_port &&
-            0 == memcmp(&(((struct sockaddr_in6 *)a)->sin6_addr),
-                    &(((struct sockaddr_in6 *)b)->sin6_addr),
-                    sizeof(struct in6_addr));
-    default: /* fall through and signal error */
-        ;
-    }
-    return 0;
-}
-
 static esp_err_t proto_decode_pdu(osh_node_proto_session_t *session,
                         osh_node_proto_pdu_t *pdu,
                         uint8_t *buff,
@@ -112,7 +64,8 @@ static esp_err_t proto_decode_pdu(osh_node_proto_session_t *session,
     pdu->token_ind = (uint8_t)((buff[0] & 0x04) >> 2);
     pdu->hash_ind = (uint8_t)((buff[0] & 0x02) >> 1);
     pdu->entry_ind = (uint8_t)(buff[0] & 0x01);
-    pdu->code = buff[1];
+    pdu->code_class = (OSH_CODE_CLASS_ENUM) ((buff[1] & 0xE0) >> 5);
+    pdu->code_code = buff[1] & 0x1F;
     pdu->mid = (uint16_t)((buff[2] << 8) | buff[3]);
     pdu->con_type = (OSH_CONTENT_TYPE_ENUM)buff[4];
     pdu->con_len = (uint32_t)((buff[5]<<16) | (buff[6] << 8) | buff[7]);
@@ -164,6 +117,20 @@ static void proto_make_hash(osh_node_proto_pdu_t *pdu) {
     pdu->hash = (uint32_t)pdu->mid;
 }
 
+static void proto_init_response(osh_node_proto_session_t *session,
+                        osh_node_proto_pdu_t *pdu,
+                        uint8_t *buff,
+                        size_t  buff_len) {
+    if (NULL == pdu || NULL == buff) return;
+
+    memset(pdu, 0, sizeof(osh_node_proto_pdu_t));
+    pdu->type = OSH_PDU_BUTT;
+    pdu->session = session;
+    pdu->octets = buff;
+    pdu->octets_size = buff_len;
+    pdu->oct_rd = pdu->oct_wr = buff;
+}
+
 static esp_err_t proto_encode_pdu(osh_node_proto_session_t *session,
                         osh_node_proto_pdu_t *pdu,
                         uint8_t *buff,
@@ -178,10 +145,6 @@ static esp_err_t proto_encode_pdu(osh_node_proto_session_t *session,
         return OSH_ERR_PROTO_BUFF_LEN;
     }
 
-    // init
-    pdu->octets = buff;
-    pdu->octets_size = buff_len;
-    pdu->oct_rd = pdu->oct_wr = buff;
     // get mid
     pdu->mid = (uint16_t)(session->ref++);
     if (1 < (uint8_t)pdu->type && 0 != pdu->token_ind) {
@@ -199,7 +162,8 @@ static esp_err_t proto_encode_pdu(osh_node_proto_session_t *session,
                         ((pdu->token_ind & 0x01) << 2) |
                         ((pdu->hash_ind & 0x01) << 1) |
                         (pdu->entry_ind & 0x01));
-    buff[1] = pdu->code;
+    buff[1] = (((uint8_t)pdu->code_class & 0x03) << 5) |
+                        (pdu->code_code & 0x1F);
     buff[2] = (uint8_t)((pdu->mid & 0xFF00) >> 8);
     buff[3] = (uint8_t)(pdu->mid & 0xFF);
     buff[4] = (uint8_t)pdu->con_type;
@@ -232,7 +196,7 @@ static esp_err_t proto_encode_pdu(osh_node_proto_session_t *session,
         ESP_LOGE(PROTO_TAG, "buff overflow [%ld]>[%d]", offset+pdu->con_len, buff_len);
         return OSH_ERR_PROTO_BUFF_LEN;
     }
-    memcpy(&buff[offset], pdu->content, pdu->con_len);
+    if (0 < pdu->con_len) memcpy(&buff[offset], pdu->data, pdu->con_len);
     pdu->oct_wr += (offset + pdu->con_len);
     return ESP_OK;
 }
@@ -246,6 +210,18 @@ static esp_err_t proto_encode_pdu(osh_node_proto_session_t *session,
 #define proto_make_code(class, code) \
     ((uint8_t)(((((uint8_t)(class)) & 0x07) << 5) | (((uint8_t)(code)) & 0x1F)))
 
+#define proto_response_err_head(req, rsp, cls, code) \
+do {\
+    (rsp)->version = OSH_NODE_PROTO_VER; \
+    (rsp)->type = OSH_RESPONSE_RESET; \
+    (rsp)->code_class = (cls); \
+    (rsp)->code_code = (code); \
+    (rsp)->token_ind = (req)->token_ind; \
+    (rsp)->hash_ind = (req)->hash_ind; \
+    (rsp)->con_type = OSH_CONTENT_OCTETS; \
+    (rsp)->con_len = 0; \
+} while(0)
+
 /** -------------------------------
  *            task
  *  -------------------------------
@@ -255,184 +231,261 @@ static void hb_timeout_cb(TimerHandle_t timer) {
     // broadcast heartbeat
 }
 
+static esp_err_t decode_pdu(void) {
+    // init rsp
+    proto_init_response(&g_proto.session, &g_proto.response,
+                        g_proto.send_buff.base, g_proto.send_buff.size);
+
+    // decode request
+    esp_err_t res = proto_decode_pdu(&g_proto.session, &g_proto.request,
+                        g_proto.recv_buff.base, g_proto.recv_buff.len);
+
+    if (ESP_OK != res) {
+        // bad request
+        osh_node_proto_pdu_t *rsp = &g_proto.response;
+        osh_node_proto_pdu_t *req = &g_proto.request;
+        ESP_LOGE(PROTO_TAG, "bad request.[0x%x]", req->mid);
+        proto_response_err_head(req, rsp, OSH_CC_CLIENT_ERR, OSH_CERR_BAD_REQUEST);
+    }
+
+    return ESP_OK;
+}
+
+static void response_remote(int sock, struct sockaddr_in *addr) {
+    esp_err_t err = proto_encode_pdu(&g_proto.session, &g_proto.response,
+                    g_proto.send_buff.base, g_proto.send_buff.size);
+    if (ESP_OK != err) {
+        ESP_LOGE(PROTO_TAG, "failed to encode response. err:%d", err);
+        return;
+    }
+    // send to remote
+    if (0 > sendto(sock, g_proto.send_buff.base, g_proto.send_buff.len,
+                    0, (struct sockaddr *)addr, sizeof(struct sockaddr_in))) {
+        ESP_LOGE(PROTO_TAG, "failed to send response to %s", inet_ntoa(addr->sin_addr));
+    } else {
+        ESP_LOGI(PROTO_TAG, "reponse to %s", inet_ntoa(addr->sin_addr));
+    }
+}
+
+static esp_err_t handle_mdm_pdu(void) {
+    osh_node_proto_pdu_t *req = &g_proto.request;
+    osh_node_proto_pdu_t *rsp = &g_proto.response;
+
+    if (1 < req->type) {
+        // not a request
+        ESP_LOGE(PROTO_TAG, "receive pdu not request %d. [0x%x]",
+                (int)req->type, req->mid);
+        proto_response_err_head(req, rsp, OSH_CC_CLIENT_ERR, OSH_CERR_BAD_REQUEST);
+        return OSH_ERR_PROTO_PDU_FMT;
+    }
+    if (1 == req->entry_ind && !OSH_NODE_ENTRY_IS_MDM(req->entry)) {
+        // has entry not belong to MDM
+        ESP_LOGE(PROTO_TAG, "invalid MDM entry 0x%lx. [0x%x]",
+                req->entry, req->mid);
+        proto_response_err_head(req, rsp, OSH_CC_CLIENT_ERR, OSH_CERR_FORBIDDEN);
+        rsp->con_len = sizeof(req->entry);
+        rsp->data = &req->entry;
+        return OSH_ERR_PROTO_INVALID_ENTRY;
+    }
+
+    if (OSH_CC_SGINAL == req->code_class) {
+        // only handle PING in MDM
+        if (OSH_SIGNAL_PING == req->code_code) {
+            ESP_LOGI(PROTO_TAG, "MDM Ping. [0x%x]", req->mid);
+            rsp->version = OSH_NODE_PROTO_VER;
+            rsp->type = OSH_RESPONSE_ACK;
+            rsp->code_class = OSH_CC_SGINAL;
+            rsp->code_code = OSH_SIGNAL_PONG;
+            rsp->token_ind = req->token_ind;
+            rsp->hash_ind = req->hash_ind;
+            rsp->con_type = OSH_CONTENT_OCTETS;
+            rsp->con_len = 0;
+            return ESP_OK;
+        }
+    } else if (OSH_CC_METHOD == req->code_class) {
+        // method
+        if (1 != req->entry_ind) {
+            ESP_LOGE(PROTO_TAG, "MDM method without entry. [0x%x]", req->mid);
+            proto_response_err_head(req, rsp,
+                    OSH_CC_CLIENT_ERR, OSH_CERR_ENTITY_INCOMPLETE);
+            return OSH_ERR_PROTO_INVALID_ENTRY;
+        }
+
+        // search and call entry callback
+        osh_node_proto_entry_t *entry = NULL;
+        listFOR_EACH_ENTRY(&g_proto.entry_list, osh_node_proto_entry_t, entry) {
+            if (req->entry == entry->entry) {
+                osh_node_proto_route_t *route = NULL;
+                listFOR_EACH_ENTRY(&entry->route_list, osh_node_proto_route_t, route) {
+                    if (req->code_code == route->method) {
+                        ESP_LOGI(PROTO_TAG, "MDM matched route. method %d@0x%lx. [0x%x]",
+                                req->code_code, req->entry, req->mid);
+                        if (NULL != route->route_cb) {
+                            return route->route_cb(req->entry, g_proto.node_bb,
+                                        &g_proto.session, req, rsp);
+                        }
+                    }
+                }
+            }
+        }
+
+        // not match
+        ESP_LOGW(PROTO_TAG, "MDM not matched route.method %d@0x%lx. [0x%x]",
+                req->code_code, req->entry, req->mid);
+        proto_response_err_head(req, rsp, OSH_CC_CLIENT_ERR, OSH_CERR_NOT_FOUND);
+        return OSH_ERR_PROTO_NOT_FOUND;
+    }
+
+    // can't handle
+    proto_response_err_head(req, rsp, OSH_CC_CLIENT_ERR, OSH_CERR_NOT_FOUND);
+    return OSH_ERR_PROTO_NOT_FOUND;
+}
+
+static esp_err_t handle_app_pdu(void) {
+    osh_node_proto_pdu_t *req = &g_proto.request;
+    osh_node_proto_pdu_t *rsp = &g_proto.response;
+
+    if (1 < req->type) {
+        // not a request
+        ESP_LOGE(PROTO_TAG, "receive pdu not request %d. [0x%x]",
+                (int)req->type, req->mid);
+        proto_response_err_head(req, rsp, OSH_CC_CLIENT_ERR, OSH_CERR_BAD_REQUEST);
+        return OSH_ERR_PROTO_PDU_FMT;
+    }
+    if (1 == req->entry_ind && !OSH_NODE_ENTRY_IS_APP(req->entry)) {
+        // has entry not belong to APP
+        ESP_LOGE(PROTO_TAG, "invalid APP entry 0x%lx. [0x%x]",
+                req->entry, req->mid);
+        proto_response_err_head(req, rsp, OSH_CC_CLIENT_ERR, OSH_CERR_FORBIDDEN);
+        rsp->con_len = sizeof(req->entry);
+        rsp->data = &req->entry;
+        return OSH_ERR_PROTO_INVALID_ENTRY;
+    }
+
+    if (OSH_CC_SGINAL == req->code_class) {
+        if (OSH_SIGNAL_SHAKEHAND == req->code_code) {
+            ESP_LOGI(PROTO_TAG, "APP shakehand. [0x%x]", req->mid);
+            // todo exchange the key
+            rsp->version = OSH_NODE_PROTO_VER;
+            rsp->type = OSH_RESPONSE_ACK;
+            rsp->code_class = OSH_CC_SGINAL;
+            rsp->code_code = OSH_SIGNAL_PONG;
+            rsp->token_ind = req->token_ind;
+            rsp->hash_ind = req->hash_ind;
+            rsp->con_type = OSH_CONTENT_OCTETS;
+            rsp->con_len = 0;
+            return ESP_OK;
+        } else if (OSH_SIGNAL_UPDATE == req->code_code) {
+            ESP_LOGI(PROTO_TAG, "APP update. [0x%x]", req->mid);
+            // todo update node
+            return ESP_OK;
+        }
+    } else if (OSH_CC_METHOD == req->code_class) {
+        // method
+        if (1 != req->entry_ind) {
+            ESP_LOGE(PROTO_TAG, "APP method without entry. [0x%x]", req->mid);
+            proto_response_err_head(req, rsp,
+                    OSH_CC_CLIENT_ERR, OSH_CERR_ENTITY_INCOMPLETE);
+            return OSH_ERR_PROTO_INVALID_ENTRY;
+        }
+
+        // search and call entry callback
+        osh_node_proto_entry_t *entry = NULL;
+        listFOR_EACH_ENTRY(&g_proto.entry_list, osh_node_proto_entry_t, entry) {
+            if (req->entry == entry->entry) {
+                osh_node_proto_route_t *route = NULL;
+                listFOR_EACH_ENTRY(&entry->route_list, osh_node_proto_route_t, route) {
+                    if (req->code_code == route->method) {
+                        ESP_LOGI(PROTO_TAG, "APP matched route. method %d@0x%lx. [0x%x]",
+                                req->code_code, req->entry, req->mid);
+                        if (NULL != route->route_cb) {
+                            return route->route_cb(req->entry, g_proto.node_bb,
+                                        &g_proto.session, req, rsp);
+                        }
+                    }
+                }
+            }
+        }
+
+        // not match
+        ESP_LOGW(PROTO_TAG, "APP not matched route.method %d@0x%lx. [0x%x]",
+                req->code_code, req->entry, req->mid);
+        proto_response_err_head(req, rsp, OSH_CC_CLIENT_ERR, OSH_CERR_NOT_FOUND);
+        return OSH_ERR_PROTO_NOT_FOUND;
+    }
+
+    // can't handle
+    proto_response_err_head(req, rsp, OSH_CC_CLIENT_ERR, OSH_CERR_NOT_FOUND);
+    return OSH_ERR_PROTO_NOT_FOUND;
+}
+
 static void proto_server(void * arg) {
-//     coap_context_t *ctx = NULL;
-//     int have_ep = 0;
-//     uint16_t u_s_port = atoi(CONFIG_NODE_COAP_PORT);
-// #ifdef CONFIG_NODE_COAPS_PORT
-//     uint16_t s_port = atoi(CONFIG_NODE_COAPS_PORT);
-// #else /* ! CONFIG_NODE_COAPS_PORT */
-//     uint16_t s_port = 0;
-// #endif /* ! CONFIG_NODE_COAPS_PORT */
+    while (1) {
+        fd_set read_fds;
+        FD_ZERO(&read_fds);
+        FD_SET(g_proto.mdm_sock, &read_fds);
+        FD_SET(g_proto.app_sock, &read_fds);
 
-//     uint32_t scheme_hint_bits;
+        int max_sd = g_proto.mdm_sock > g_proto.app_sock ? g_proto.mdm_sock : g_proto.app_sock;
+        struct timeval timeout = {10, 0}; // 10 seconds timeout
 
-//     /* Initialize libcoap library */
-//     coap_startup();
+        int activity = select(max_sd + 1, &read_fds, NULL, NULL, &timeout);
 
-//     // snprintf((char *)g_proto.buff, g_proto.buff_size, INITIAL_DATA);
-//     // g_proto.buff_len = strlen((char *)g_proto.buff);
-//     coap_set_log_handler(coap_log_handler);
-//     coap_set_log_level(CONFIG_COAP_LOG_DEFAULT_LEVEL);
+        if ((activity < 0) && (errno != EINTR)) {
+            ESP_LOGE(PROTO_TAG, "select error: errno %d", errno);
+        }
 
-//     while (1) {
-//         unsigned wait_ms;
-//         coap_addr_info_t *info = NULL;
-//         coap_addr_info_t *info_list = NULL;
+        if (FD_ISSET(g_proto.mdm_sock, &read_fds)) {
+            socklen_t socklen = sizeof(struct sockaddr_in);
+            int len = recvfrom(g_proto.mdm_sock, g_proto.recv_buff.base,
+                        g_proto.recv_buff.size, 0,
+                        (struct sockaddr *)&g_proto.session.remote_addr,
+                        &socklen);
 
-//         ctx = coap_new_context(NULL);
-//         if (!ctx) {
-//             ESP_LOGE(PROTO_TAG, "coap_new_context() failed");
-//             goto clean_up;
-//         }
-//         coap_context_set_block_mode(ctx,
-//                                     COAP_BLOCK_USE_LIBCOAP | COAP_BLOCK_SINGLE_BODY);
-//         coap_context_set_max_idle_sessions(ctx, 20);
+            if (len < 0) {
+                ESP_LOGE(PROTO_TAG, "recvfrom (multicast) failed: errno %d", errno);
+            } else {
+                ESP_LOGI(PROTO_TAG, "MDM Received %d bytes from %s:",
+                         len, inet_ntoa(g_proto.session.remote_addr.sin_addr));
+                g_proto.recv_buff.len = len;
+                if (ESP_OK == decode_pdu()) {
+                    if (ESP_OK != handle_mdm_pdu() ||
+                        OSH_REQUEST_CONFIRM == g_proto.request.type) {
+                        // response when need confirm
+                        response_remote(g_proto.mdm_sock, &g_proto.session.remote_addr);
+                    }
+                } else {
+                    response_remote(g_proto.mdm_sock, &g_proto.session.remote_addr);
+                }
+            }
+        }
 
-// #ifdef CONFIG_NODE_COAP_MBEDTLS_PSK
-//         /* Need PSK setup before we set up endpoints */
-//         coap_context_set_psk(ctx, "CoAP",
-//                              (const uint8_t *)CONFIG_NODE_COAP_PSK_KEY,
-//                              sizeof(CONFIG_NODE_COAP_PSK_KEY) - 1);
-// #endif /* CONFIG_NODE_COAP_MBEDTLS_PSK */
+        if (FD_ISSET(g_proto.app_sock, &read_fds)) {
+            socklen_t socklen = sizeof(struct sockaddr_in);
+            int len = recvfrom(g_proto.app_sock, g_proto.recv_buff.base,
+                        g_proto.recv_buff.size, 0,
+                        (struct sockaddr *)&g_proto.session.remote_addr,
+                        &socklen);
 
-// #ifdef CONFIG_NODE_COAP_MBEDTLS_PKI
-//         /* Need PKI setup before we set up endpoints */
-//         unsigned int ca_pem_bytes = ca_pem_end - ca_pem_start;
-//         unsigned int server_crt_bytes = server_crt_end - server_crt_start;
-//         unsigned int server_key_bytes = server_key_end - server_key_start;
-//         coap_dtls_pki_t dtls_pki;
-
-//         memset (&dtls_pki, 0, sizeof(dtls_pki));
-//         dtls_pki.version = COAP_DTLS_PKI_SETUP_VERSION;
-//         if (ca_pem_bytes) {
-//             /*
-//              * Add in additional certificate checking.
-//              * This list of enabled can be tuned for the specific
-//              * requirements - see 'man coap_encryption'.
-//              *
-//              * Note: A list of root ca file can be setup separately using
-//              * coap_context_set_pki_root_cas(), but the below is used to
-//              * define what checking actually takes place.
-//              */
-//             dtls_pki.verify_peer_cert        = 1;
-//             dtls_pki.check_common_ca         = 1;
-//             dtls_pki.allow_self_signed       = 1;
-//             dtls_pki.allow_expired_certs     = 1;
-//             dtls_pki.cert_chain_validation   = 1;
-//             dtls_pki.cert_chain_verify_depth = 2;
-//             dtls_pki.check_cert_revocation   = 1;
-//             dtls_pki.allow_no_crl            = 1;
-//             dtls_pki.allow_expired_crl       = 1;
-//             dtls_pki.allow_bad_md_hash       = 1;
-//             dtls_pki.allow_short_rsa_length  = 1;
-//             dtls_pki.validate_cn_call_back   = verify_cn_callback;
-//             dtls_pki.cn_call_back_arg        = NULL;
-//             dtls_pki.validate_sni_call_back  = NULL;
-//             dtls_pki.sni_call_back_arg       = NULL;
-//         }
-//         dtls_pki.pki_key.key_type = COAP_PKI_KEY_PEM_BUF;
-//         dtls_pki.pki_key.key.pem_buf.public_cert = server_crt_start;
-//         dtls_pki.pki_key.key.pem_buf.public_cert_len = server_crt_bytes;
-//         dtls_pki.pki_key.key.pem_buf.private_key = server_key_start;
-//         dtls_pki.pki_key.key.pem_buf.private_key_len = server_key_bytes;
-//         dtls_pki.pki_key.key.pem_buf.ca_cert = ca_pem_start;
-//         dtls_pki.pki_key.key.pem_buf.ca_cert_len = ca_pem_bytes;
-
-//         coap_context_set_pki(ctx, &dtls_pki);
-// #endif /* CONFIG_NODE_COAP_MBEDTLS_PKI */
-
-//         /* set up the CoAP server socket(s) */
-//         scheme_hint_bits =
-//             coap_get_available_scheme_hint_bits(
-// #if defined(CONFIG_NODE_COAP_MBEDTLS_PSK) || defined(CONFIG_NODE_COAP_MBEDTLS_PKI)
-//                 1,
-// #else /* ! CONFIG_NODE_COAP_MBEDTLS_PSK) && ! CONFIG_NODE_COAP_MBEDTLS_PKI */
-//                 0,
-// #endif /* ! CONFIG_NODE_COAP_MBEDTLS_PSK) && ! CONFIG_NODE_COAP_MBEDTLS_PKI */
-//                 0,
-//                 0);
-
-//         info_list = coap_resolve_address_info(coap_make_str_const("0.0.0.0"), u_s_port, s_port,
-//                                               0, 0, 0,
-//                                               scheme_hint_bits,
-//                                               COAP_RESOLVE_TYPE_LOCAL);
-//         if (info_list == NULL) {
-//             ESP_LOGE(PROTO_TAG, "coap_resolve_address_info() failed");
-//             goto clean_up;
-//         }
-
-//         for (info = info_list; info != NULL; info = info->next) {
-//             coap_endpoint_t *ep;
-
-//             ep = coap_new_endpoint(ctx, &info->addr, info->proto);
-//             if (!ep) {
-//                 ESP_LOGW(PROTO_TAG, "cannot create endpoint for proto %u", info->proto);
-//             } else {
-//                 have_ep = 1;
-//             }
-//         }
-//         coap_free_address_info(info_list);
-//         if (!have_ep) {
-//             ESP_LOGE(PROTO_TAG, "No endpoints available");
-//             goto clean_up;
-//         }
-
-//         // register all routes
-//         if (!listLIST_IS_EMPTY(&g_proto.entry_list)) {
-//             // have entry
-//             osh_node_proto_entry_t *entry = NULL;
-//             listFOR_EACH_ENTRY(&g_proto.entry_list, osh_node_proto_entry_t, entry) {
-//                 if (!listLIST_IS_EMPTY(&entry->route_list)) {
-//                     // have routes, create resource and register coap handlers
-//                             coap_resource_t *resource = coap_resource_init(coap_make_str_const(entry->uri), 0);
-//                             if (!resource) {
-//                                 ESP_LOGE(PROTO_TAG, "coap_resource_init() failed");
-//                                 goto clean_up;
-//                             }
-//                             osh_node_proto_route_t *route = NULL;
-//                             listFOR_EACH_ENTRY(&entry->route_list, osh_node_proto_route_t, route) {
-//                                 coap_register_handler(resource, route->method, route->route_cb);
-//                                 ESP_LOGI(PROTO_TAG, "register coap %s: %d", entry->uri, (int)route->method);
-//                             }
-
-//                             /* We possibly want to Observe the GETs */
-//                             coap_resource_set_get_observable(resource, 1);
-
-//                             coap_add_resource(ctx, resource);
-//                 }
-//             }
-//         }
-
-//         // multicast
-//         esp_netif_t *netif = NULL;
-//         for (int i = 0; i < esp_netif_get_nr_of_ifs(); ++i) {
-//             char buf[8];
-//             netif = esp_netif_next_unsafe(netif);
-//             esp_netif_get_netif_impl_name(netif, buf);
-//             coap_join_mcast_group_intf(ctx, CONFIG_NODE_COAP_MULTICAST_ADDR, buf);
-//         }
-
-
-//         wait_ms = COAP_RESOURCE_CHECK_TIME * 1000;
-
-//         while (1) {
-//             int result = coap_io_process(ctx, wait_ms);
-//             if (result < 0) {
-//                 break;
-//             } else if (result && (unsigned)result < wait_ms) {
-//                 /* decrement if there is a result wait time returned */
-//                 wait_ms -= result;
-//             }
-//             if (result) {
-//                 /* result must have been >= wait_ms, so reset wait_ms */
-//                 wait_ms = COAP_RESOURCE_CHECK_TIME * 1000;
-//             }
-//         }
-//     }
-// clean_up:
-//     coap_free_context(ctx);
-//     coap_cleanup();
+            if (len < 0) {
+                ESP_LOGE(PROTO_TAG, "recvfrom (unicast) failed: errno %d", errno);
+            } else {
+                ESP_LOGI(PROTO_TAG, "APP Received %d bytes from %s:",
+                        len, inet_ntoa(g_proto.session.remote_addr.sin_addr));
+                g_proto.recv_buff.len = len;
+                if (ESP_OK == decode_pdu()) {
+                    if (ESP_OK != handle_app_pdu() ||
+                        OSH_REQUEST_CONFIRM == g_proto.request.type) {
+                        // response when need confirm
+                        response_remote(g_proto.app_sock, &g_proto.session.remote_addr);
+                    }
+                } else {
+                    // response bad request
+                    response_remote(g_proto.app_sock, &g_proto.session.remote_addr);
+                }
+            }
+        }
+    }
 
     vTaskDelete(NULL);
 }
@@ -445,6 +498,13 @@ static void proto_server(void * arg) {
 /* init proto */
 esp_err_t osh_node_proto_init(osh_node_bb_t *node_bb, void * conf_arg) {
     memset(&g_proto, 0, sizeof(osh_node_proto_t));
+    g_proto.report_sock = -1;
+    g_proto.mdm_sock = -1;
+    g_proto.app_sock = -1;
+    g_proto.report_addr.sin_family = AF_INET;
+    g_proto.report_addr.sin_port = htons(CONFIG_NODE_PROTO_REPORT_PORT);
+    g_proto.report_addr.sin_addr.s_addr = inet_addr(CONFIG_NODE_PROTO_REPORT_ADDR);
+
     g_proto.node_bb = node_bb;
     g_proto.recv_buff.size = CONFIG_NODE_PROTO_BUFF_SIZE;
     g_proto.recv_buff.base = malloc(CONFIG_NODE_PROTO_BUFF_SIZE);
@@ -484,6 +544,69 @@ esp_err_t osh_node_proto_fini(void) {
 
 /* start proto */
 esp_err_t osh_node_proto_start(void *run_arg) {
+    // prepare sockets
+    if (-1 != g_proto.report_sock) {
+        close(g_proto.report_sock);
+        g_proto.report_sock = -1;
+    }
+    if (-1 != g_proto.mdm_sock) {
+        close(g_proto.mdm_sock);
+        g_proto.mdm_sock = -1;
+    }
+    if (-1 != g_proto.app_sock) {
+        close(g_proto.app_sock);
+        g_proto.app_sock = -1;
+    }
+
+    struct sockaddr_in addr;
+    struct ip_mreq mreq;
+    int err;
+
+    // report - multicast client
+    g_proto.report_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (0 > g_proto.report_sock) {
+        ESP_LOGE(PROTO_TAG, "faield to create Report socket, errno:%d", errno);
+        goto failed;
+    }
+
+    // mdm - multicast server
+    g_proto.mdm_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (0 > g_proto.mdm_sock) {
+        ESP_LOGE(PROTO_TAG, "faield to create MDM socket, errno:%d", errno);
+        goto failed;
+    }
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(CONFIG_NODE_PROTO_MDM_PORT);
+    addr.sin_addr.s_addr = inet_addr(INADDR_ANY);
+    err = bind(g_proto.mdm_sock, (struct sockaddr *)&addr, sizeof(addr));
+    if (err < 0) {
+        ESP_LOGE(PROTO_TAG, "MDM socket unable to bind: errno %d", errno);
+        goto failed;
+    }
+    mreq.imr_multiaddr.s_addr = inet_addr(CONFIG_NODE_PROTO_MDM_ADDR);
+    mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+    err = setsockopt(g_proto.mdm_sock, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq));
+    if (err < 0) {
+        ESP_LOGE(PROTO_TAG, "MDM failed to add multicast membership: errno %d", errno);
+        goto failed;
+    }
+
+    // app - unicast server
+    g_proto.app_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (0 > g_proto.app_sock) {
+        ESP_LOGE(PROTO_TAG, "faield to create APP socket, errno:%d", errno);
+        goto failed;
+    }
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(CONFIG_NODE_PROTO_PORT);
+    addr.sin_addr.s_addr = inet_addr(INADDR_ANY);
+    err = bind(g_proto.app_sock, (struct sockaddr *)&addr, sizeof(addr));
+    if (err < 0) {
+        ESP_LOGE(PROTO_TAG, "APP socket unable to bind: errno %d", errno);
+        goto failed;
+    }
+
+    // task
     if (NULL == g_proto.proto_task) {
         // create proto task if not existed
         xTaskCreate(proto_server, "proto", 8*1024, &g_proto, 5, &g_proto.proto_task);
@@ -508,6 +631,22 @@ esp_err_t osh_node_proto_start(void *run_arg) {
     }
 
     return ESP_OK;
+
+failed:
+    if (-1 != g_proto.report_sock) {
+        close(g_proto.report_sock);
+        g_proto.report_sock = -1;
+    }
+    if (-1 != g_proto.mdm_sock) {
+        close(g_proto.mdm_sock);
+        g_proto.mdm_sock = -1;
+    }
+    if (-1 != g_proto.app_sock) {
+        close(g_proto.app_sock);
+        g_proto.app_sock = -1;
+    }
+
+    return OSH_ERR_PROTO_INNER;
 }
 
 /* stop proto */
@@ -523,80 +662,87 @@ esp_err_t osh_node_proto_stop(void) {
 
     // stop timer
     xTimerStop(g_proto.hb_timer, 0);
+
+    // close sockets
+    if (-1 != g_proto.report_sock) {
+        close(g_proto.report_sock);
+        g_proto.report_sock = -1;
+    }
+    if (-1 != g_proto.mdm_sock) {
+        close(g_proto.mdm_sock);
+        g_proto.mdm_sock = -1;
+    }
+    if (-1 != g_proto.app_sock) {
+        close(g_proto.app_sock);
+        g_proto.app_sock = -1;
+    }
     return ESP_OK;
 }
 
 
 /* register handler */
-esp_err_t osh_node_route_register(uint32_t entry,
+esp_err_t osh_node_route_register(uint32_t e,
                                   OSH_CODE_METHOD_ENUM method,
                                   osh_node_proto_handler_t handler) {
-    // esp_err_t res = ESP_FAIL;
+    esp_err_t res = ESP_FAIL;
 
-    // osh_node_proto_entry_t *entry = NULL;
-    // osh_node_proto_route_t *route = NULL;
+    osh_node_proto_entry_t *entry = NULL;
+    osh_node_proto_route_t *route = NULL;
 
-    // // find the uri
-    // if (!listLIST_IS_EMPTY(&g_proto.entry_list)) {
-    //     osh_node_proto_entry_t *tmp_entry = NULL;
-    //     listFOR_EACH_ENTRY(&g_proto.entry_list, osh_node_proto_entry_t, tmp_entry) {
-    //         if (0 == strncmp(uri, tmp_entry->uri, strlen(tmp_entry->uri))) {
-    //             // matched
-    //             entry = tmp_entry;
-    //             break;
-    //         }
-    //     }
-    // }
+    // find the entry
+    if (!listLIST_IS_EMPTY(&g_proto.entry_list)) {
+        osh_node_proto_entry_t *tmp_entry = NULL;
+        listFOR_EACH_ENTRY(&g_proto.entry_list, osh_node_proto_entry_t, tmp_entry) {
+            if (e == tmp_entry->entry) {
+                // matched
+                entry = tmp_entry;
+                break;
+            }
+        }
+    }
 
-    // if (NULL == entry) {
-    //     // not matched, create a new entry
-    //     entry = (osh_node_proto_entry_t *)malloc(sizeof(osh_node_proto_entry_t));
-    //     if (NULL == entry) {
-    //         ESP_LOGE(PROTO_TAG, "failed to malloc mem for entry %s", uri);
-    //         res = ESP_ERR_NO_MEM;
-    //         goto clearup;
-    //     }
-    //     entry->uri = strdup(uri);
-    //     if (NULL == entry->uri) {
-    //         ESP_LOGE(PROTO_TAG, "failed to malloc mem for uri %s", uri);
-    //         res = ESP_ERR_NO_MEM;
-    //         goto clearup;
-    //     }
-    //     // init entry list
-    //     vListInitialise(&entry->route_list);
-    //     // init entry item
-    //     vListInitialiseItem(&entry->entry_item);
+    if (NULL == entry) {
+        // not matched, create a new entry
+        entry = (osh_node_proto_entry_t *)malloc(sizeof(osh_node_proto_entry_t));
+        if (NULL == entry) {
+            ESP_LOGE(PROTO_TAG, "failed to malloc mem for entry 0x%lx", e);
+            res = ESP_ERR_NO_MEM;
+            goto clearup;
+        }
+        entry->entry = e;
+        // init entry list
+        vListInitialise(&entry->route_list);
+        // init entry item
+        vListInitialiseItem(&entry->entry_item);
 
-    //     // add entry to list
-    //     listSET_LIST_ITEM_OWNER(&entry->entry_item, entry);
-    //     vListInsert(&g_proto.entry_list, &entry->entry_item);
-    // }
+        // add entry to list
+        listSET_LIST_ITEM_OWNER(&entry->entry_item, entry);
+        vListInsert(&g_proto.entry_list, &entry->entry_item);
+    }
 
-    // // register route into entry
-    // route = malloc(sizeof(osh_node_proto_route_t));
-    // if (NULL == route) {
-    //     ESP_LOGE(PROTO_TAG, "failed to malloc for route %s, method %d", uri, (int)method);
-    //     res = ESP_ERR_NO_MEM;
-    //     goto clearup;
-    // }
-    // memset(route, 0, sizeof(osh_node_proto_route_t));
+    // register route into entry
+    route = malloc(sizeof(osh_node_proto_route_t));
+    if (NULL == route) {
+        ESP_LOGE(PROTO_TAG, "failed to malloc for method %d@0x%lx",
+                (int)method, e);
+        res = ESP_ERR_NO_MEM;
+        goto clearup;
+    }
+    memset(route, 0, sizeof(osh_node_proto_route_t));
 
-    // route->method = method;
-    // vListInitialiseItem(&route->route_item);
-    // listSET_LIST_ITEM_OWNER(&route->route_item, route);
+    route->method = method;
+    vListInitialiseItem(&route->route_item);
+    listSET_LIST_ITEM_OWNER(&route->route_item, route);
 
-    // // insert to route list
-    // route->route_item.xItemValue = (int)method;  // using bits as value
-    // vListInsert(&entry->route_list, &route->route_item);
+    // insert to route list
+    route->route_item.xItemValue = (int)method;  // using bits as value
+    vListInsert(&entry->route_list, &route->route_item);
 
-    // ESP_LOGI(PROTO_TAG, "create route %s, method %d", uri, (int)method);
+    ESP_LOGI(PROTO_TAG, "create method method %d@0x%lx", (int)method, e);
     return ESP_OK;
 
-// clearup:
-//     if (NULL != entry) {
-//         if (NULL != entry->uri) free(entry->uri);
-//         free(entry);
-//     }
-//     if (NULL != route) free(route);
-//     return res;
+clearup:
+    if (NULL != entry)  free(entry);
+    if (NULL != route) free(route);
+    return res;
 }
