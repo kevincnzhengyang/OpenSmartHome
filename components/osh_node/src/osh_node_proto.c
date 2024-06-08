@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-06-02 20:04:36
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-06-07 23:12:08
+ * @LastEditTime: 2024-06-08 22:03:54
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_proto.c
  * @Description :
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -19,8 +19,6 @@
 #include "osh_node_proto.h"
 #include "osh_node_proto.inc"
 #include "osh_node_proto_dataframe.h"
-
-#define OSH_NODE_PROTO_VER          0
 
 static const char *PROTO_TAG = "PROTO";
 
@@ -65,9 +63,17 @@ static esp_err_t proto_decode_pdu(osh_node_proto_session_t *session,
     pdu->hash_ind = (uint8_t)((buff[0] & 0x02) >> 1);
     pdu->entry_ind = (uint8_t)(buff[0] & 0x01);
     pdu->code_class = (OSH_CODE_CLASS_ENUM) ((buff[1] & 0xE0) >> 5);
+    if (OSH_CC_BUTT <= pdu->code_class) {
+        ESP_LOGE(PROTO_TAG, "invalid code class %d", (int)pdu->code_class);
+        return OSH_ERR_PROTO_PDU_FMT;
+    }
     pdu->code_code = buff[1] & 0x1F;
     pdu->mid = (uint16_t)((buff[2] << 8) | buff[3]);
     pdu->con_type = (OSH_CONTENT_TYPE_ENUM)buff[4];
+    if (OSH_CONTENT_BUTT <= pdu->con_type) {
+        ESP_LOGE(PROTO_TAG, "invalid content type %d", (int)pdu->con_type);
+        return OSH_ERR_PROTO_PDU_FMT;
+    }
     pdu->con_len = (uint32_t)((buff[5]<<16) | (buff[6] << 8) | buff[7]);
     offset += 8;
     if (0 != pdu->token_ind) {
@@ -95,8 +101,9 @@ static esp_err_t proto_decode_pdu(osh_node_proto_session_t *session,
     // set read ptr for app
     pdu->oct_rd += offset;
 
-    if (offset > buff_len) {
-        ESP_LOGE(PROTO_TAG, "decode overflow [%d]>[%d]", offset, buff_len);
+    if (offset + pdu->con_len != buff_len) {
+        ESP_LOGE(PROTO_TAG, "invalid PDU length [%d] != [%d]",
+                offset + (int)(pdu->con_len), buff_len);
         return OSH_ERR_PROTO_PDU_LEN;
     }
     return ESP_OK;
@@ -198,6 +205,7 @@ static esp_err_t proto_encode_pdu(osh_node_proto_session_t *session,
     }
     if (0 < pdu->con_len) memcpy(&buff[offset], pdu->data, pdu->con_len);
     pdu->oct_wr += (offset + pdu->con_len);
+
     return ESP_OK;
 }
 
@@ -209,18 +217,6 @@ static esp_err_t proto_encode_pdu(osh_node_proto_session_t *session,
 
 #define proto_make_code(class, code) \
     ((uint8_t)(((((uint8_t)(class)) & 0x07) << 5) | (((uint8_t)(code)) & 0x1F)))
-
-#define proto_response_err_head(req, rsp, cls, code) \
-do {\
-    (rsp)->version = OSH_NODE_PROTO_VER; \
-    (rsp)->type = OSH_RESPONSE_RESET; \
-    (rsp)->code_class = (cls); \
-    (rsp)->code_code = (code); \
-    (rsp)->token_ind = (req)->token_ind; \
-    (rsp)->hash_ind = (req)->hash_ind; \
-    (rsp)->con_type = OSH_CONTENT_OCTETS; \
-    (rsp)->con_len = 0; \
-} while(0)
 
 /** -------------------------------
  *            task
@@ -257,6 +253,9 @@ static void response_remote(int sock, struct sockaddr_in *addr) {
     if (ESP_OK != err) {
         ESP_LOGE(PROTO_TAG, "failed to encode response. err:%d", err);
         return;
+    } else {
+        // set length to be sent
+        g_proto.send_buff.len = g_proto.response.oct_wr - g_proto.response.oct_rd;
     }
     // send to remote
     if (0 > sendto(sock, g_proto.send_buff.base, g_proto.send_buff.len,
@@ -577,7 +576,7 @@ esp_err_t osh_node_proto_start(void *run_arg) {
     }
     addr.sin_family = AF_INET;
     addr.sin_port = htons(CONFIG_NODE_PROTO_MDM_PORT);
-    addr.sin_addr.s_addr = inet_addr(INADDR_ANY);
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
     err = bind(g_proto.mdm_sock, (struct sockaddr *)&addr, sizeof(addr));
     if (err < 0) {
         ESP_LOGE(PROTO_TAG, "MDM socket unable to bind: errno %d", errno);
@@ -599,7 +598,7 @@ esp_err_t osh_node_proto_start(void *run_arg) {
     }
     addr.sin_family = AF_INET;
     addr.sin_port = htons(CONFIG_NODE_PROTO_PORT);
-    addr.sin_addr.s_addr = inet_addr(INADDR_ANY);
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
     err = bind(g_proto.app_sock, (struct sockaddr *)&addr, sizeof(addr));
     if (err < 0) {
         ESP_LOGE(PROTO_TAG, "APP socket unable to bind: errno %d", errno);

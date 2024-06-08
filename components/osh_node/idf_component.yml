@@ -1,9 +1,7 @@
 ## IDF Component Manager Manifest File
 dependencies:
-  espressif/cbor: "^0.6.0~1"
   espressif/button: "^3.2.0"
   espressif/qrcode: "^0.1.0~2"
-  espressif/coap: "^4.3.4~1"
   ## Required IDF version
   idf:
     version: ">=4.1.0"

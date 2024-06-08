@@ -21,6 +21,8 @@ extern "C" {
 #include "osh_node.h"
 #include "osh_node_proto_dataframe.h"
 
+#define OSH_NODE_PROTO_VER          0
+
 #define OSH_ERR_PROTO_BASE              (OSH_ERR_NODE_BASE + 0x10000)
 #define OSH_ERR_PROTO_INNER             (OSH_ERR_PROTO_BASE +     1)
 #define OSH_ERR_PROTO_PDU_LEN           (OSH_ERR_PROTO_BASE +     2)
@@ -36,6 +38,28 @@ typedef esp_err_t (*osh_node_proto_handler_t) (uint32_t entry,
             osh_node_proto_session_t *session,
             const osh_node_proto_pdu_t *request,
             osh_node_proto_pdu_t *response);
+
+#define proto_response_err_head(req, rsp, cls, code) \
+do {\
+    (rsp)->version = OSH_NODE_PROTO_VER; \
+    (rsp)->type = OSH_RESPONSE_RESET; \
+    (rsp)->code_class = (cls); \
+    (rsp)->code_code = (code); \
+    (rsp)->token_ind = (req)->token_ind; \
+    (rsp)->hash_ind = (req)->hash_ind; \
+    (rsp)->con_type = OSH_CONTENT_OCTETS; \
+    (rsp)->con_len = 0; \
+} while(0)
+
+#define proto_response_ack_head(req, rsp, cls, code) \
+do {\
+    (rsp)->version = OSH_NODE_PROTO_VER; \
+    (rsp)->type = OSH_RESPONSE_ACK; \
+    (rsp)->code_class = (cls); \
+    (rsp)->code_code = (code); \
+    (rsp)->token_ind = (req)->token_ind; \
+    (rsp)->hash_ind = (req)->hash_ind; \
+} while(0)
 
 
 /* init proto */

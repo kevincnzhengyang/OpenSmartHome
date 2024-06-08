@@ -2,7 +2,7 @@
  * @Author      : kevin.z.y <kevin.cn.zhengyang@gmail.com>
  * @Date        : 2024-04-30 22:36:41
  * @LastEditors : kevin.z.y <kevin.cn.zhengyang@gmail.com>
- * @LastEditTime: 2024-06-03 22:18:12
+ * @LastEditTime: 2024-06-08 21:33:43
  * @FilePath    : /OpenSmartHome/components/osh_node/src/osh_node_wifi.c
  * @Description : WiFi network
  * Copyright (c) 2024 by Zheng, Yang, All Rights Reserved.
@@ -43,6 +43,7 @@ typedef struct
     osh_node_bb_t              *node_bb;
     uint8_t               timeout_count;
     TimerHandle_t            ping_timer;
+    esp_ping_handle_t              ping;
     ip_addr_t                gateway_ip;
     void                      *conf_arg;
 } osh_node_network;
@@ -232,6 +233,7 @@ static void wifi_prov_print_qr(const char *name, const char *username,
 static void ping_on_success(esp_ping_handle_t hdl, void *arg) {
     ESP_LOGI(WIFI_TAG, "ping gateway OK");
     g_node_wifi.timeout_count = 0;  // reset
+    esp_ping_stop(g_node_wifi.ping);
 }
 
 static void ping_on_timeout(esp_ping_handle_t hdl, void *args) {
@@ -245,21 +247,8 @@ static void ping_on_timeout(esp_ping_handle_t hdl, void *args) {
 }
 
 static void ping_timeout_cb(TimerHandle_t timer) {
-    esp_ping_config_t config = ESP_PING_DEFAULT_CONFIG();
-    config.target_addr = g_node_wifi.gateway_ip;
-
-    /* set callback functions */
-    esp_ping_callbacks_t cbs = {
-        .cb_args = NULL,
-        .on_ping_success = ping_on_success,
-        .on_ping_timeout = ping_on_timeout,
-        .on_ping_end = NULL
-    };
-    esp_ping_handle_t ping;
-    esp_ping_new_session(&config, &cbs, &ping);
-
     // start ping
-    esp_ping_start(ping);
+    esp_ping_start(g_node_wifi.ping);
 
 }
 
@@ -400,6 +389,19 @@ static esp_err_t osh_node_wifi_init_connect(void *config, void *arg) {
     // change state to OSH_FSM_STATE_IDLE
     osh_node_fsm_set_state(OSH_FSM_STATE_IDLE);
 
+    // session for ping
+    esp_ping_config_t ping_config = ESP_PING_DEFAULT_CONFIG();
+    ping_config.target_addr = g_node_wifi.gateway_ip;
+
+    /* set callback functions */
+    esp_ping_callbacks_t cbs = {
+        .cb_args = NULL,
+        .on_ping_success = ping_on_success,
+        .on_ping_timeout = ping_on_timeout,
+        .on_ping_end = NULL
+    };
+    esp_ping_new_session(&ping_config, &cbs, &g_node_wifi.ping);
+
     // start ping timer
     xTimerStart(g_node_wifi.ping_timer, 0);
 
@@ -420,6 +422,9 @@ static esp_err_t osh_node_wifi_on_disconnect(void *config, void *arg) {
 
     // stop ping timer
     xTimerStop(g_node_wifi.ping_timer, 0);
+
+    // delete ping session
+    esp_ping_delete_session(g_node_wifi.ping);
 
     return ESP_OK;
 }
@@ -490,8 +495,9 @@ esp_err_t osh_node_wifi_init(osh_node_bb_t *node_bb, void *conf_arg) {
 
     g_node_wifi.conf_arg = conf_arg;
 
+    // ping timer
     g_node_wifi.ping_timer = xTimerCreate("ping_timer",
-                                    pdMS_TO_TICKS(CONFIG_NODE_WIFI_CHECK_PERIOD),
+                                    pdMS_TO_TICKS(CONFIG_NODE_WIFI_CHECK_PERIOD * 1000),
                                     pdTRUE, NULL,
                                     ping_timeout_cb);
     if (g_node_wifi.ping_timer == NULL) {
